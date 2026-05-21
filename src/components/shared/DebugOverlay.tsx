@@ -11,6 +11,7 @@ export function DebugOverlay() {
   useEffect(() => {
     let buffer = ""
     const handler = (e: KeyboardEvent) => {
+      if (!e.key) return
       buffer += e.key.toLowerCase()
       buffer = buffer.slice(-8)
       if (buffer === "vg:debug") {

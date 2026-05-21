@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   Zap,
   Plus,
@@ -62,7 +62,11 @@ export function DemoControlsSheet() {
   // Reset confirmation
   const [resetOpen, setResetOpen] = useState(false)
 
-  const atRiskItems = useDataStore((s) => s.atRiskItems.filter((a) => a.status === "pending"))
+  const allAtRiskItems = useDataStore((s) => s.atRiskItems)
+  const atRiskItems = useMemo(
+    () => allAtRiskItems.filter((a) => a.status === "pending"),
+    [allAtRiskItems]
+  )
   const vendors = useDataStore((s) => s.vendors)
   const dataSources = useDataStore((s) => s.dataSources)
   const addEvent = useDataStore((s) => s.addEvent)
@@ -380,9 +384,16 @@ function SimulateInline({
   atRiskId: string
   onDone: () => void
 }) {
-  const atRiskItem = useDataStore((s) => s.atRiskItems.find((a) => a.id === atRiskId))
+  const allAtRiskItems = useDataStore((s) => s.atRiskItems)
   const slaRules = useDataStore((s) => s.slaRules)
-  const rule = atRiskItem ? slaRules.find((r) => r.id === atRiskItem.ruleId) : undefined
+  const atRiskItem = useMemo(
+    () => allAtRiskItems.find((a) => a.id === atRiskId),
+    [allAtRiskItems, atRiskId]
+  )
+  const rule = useMemo(
+    () => (atRiskItem ? slaRules.find((r) => r.id === atRiskItem.ruleId) : undefined),
+    [atRiskItem, slaRules]
+  )
 
   const handleResult = (result: {
     matchesException: boolean
