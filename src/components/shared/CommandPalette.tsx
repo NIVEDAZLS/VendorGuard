@@ -6,7 +6,6 @@ import { Command } from "cmdk"
 import {
   LayoutDashboard,
   Building2,
-  FileText,
   Database,
   AlertTriangle,
   Mail,
@@ -17,8 +16,7 @@ import { cn } from "@/lib/utils"
 
 const pages = [
   { id: "dashboard", href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { id: "vendors", href: "/vendors", label: "Vendors", icon: Building2 },
-  { id: "contracts", href: "/contracts", label: "Contracts", icon: FileText },
+  { id: "vendors", href: "/vendors", label: "Vendors & Contracts", icon: Building2 },
   { id: "operations", href: "/operations", label: "Operations", icon: Database },
   { id: "breaches", href: "/breaches", label: "Breaches", icon: AlertTriangle },
   { id: "claims", href: "/claims", label: "Claims", icon: Mail },
@@ -50,7 +48,7 @@ export function CommandPalette() {
       }
       if (e.key === "c" && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.altKey) {
         e.preventDefault()
-        router.push("/contracts")
+        router.push("/vendors")
       }
       if (e.key === "b" && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.altKey) {
         e.preventDefault()

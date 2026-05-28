@@ -361,12 +361,24 @@ const cities = [
   "Ranchi, Jharkhand",
 ]
 
+// Seeded PRNG for deterministic seed data (avoids SSR hydration mismatches)
+function mulberry32(a: number) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0
+    let t = Math.imul(a ^ a >>> 15, 1 | a)
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
+    return ((t ^ t >>> 14) >>> 0) / 4294967296
+  }
+}
+
+const rng = mulberry32(42)
+
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
+  return arr[Math.floor(rng() * arr.length)]
 }
 
 function randInRange(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min
+  return Math.floor(rng() * (max - min + 1)) + min
 }
 
 // ── Generate Operational Events ──────────────────────────────────────────
@@ -465,7 +477,7 @@ function buildEvents(): OperationalEvent[] {
 
     // Shuffle
     for (let i = result.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
+      const j = Math.floor(rng() * (i + 1))
       ;[result[i], result[j]] = [result[j], result[i]]
     }
 
@@ -588,7 +600,7 @@ export const vendorResponses: VendorResponse[] = operationalEvents
             clauseId: "ex-001",
             clauseText: "Force majeure / Customer unreachable / Remote delivery exceptions",
             reasoning: `The vendor's response cites conditions (${responseText.includes("rainfall") ? "extreme weather" : responseText.includes("unreachable") ? "customer unreachable" : "operational exception"}) that match the contract's exception clauses. Confidence is high due to keyword alignment with clause conditions.`,
-            confidence: parseFloat((0.78 + Math.random() * 0.18).toFixed(2)),
+            confidence: parseFloat((0.78 + rng() * 0.18).toFixed(2)),
           }
         : null,
       finalDecision: hasExceptionKeywords ? "exempt" : undefined,

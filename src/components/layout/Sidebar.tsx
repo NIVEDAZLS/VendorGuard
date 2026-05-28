@@ -6,10 +6,8 @@ import {
   Shield,
   LayoutDashboard,
   Building2,
-  FileText,
   Database,
   AlertTriangle,
-  Mail,
   Activity,
   ChevronLeft,
   ChevronRight,
@@ -20,11 +18,9 @@ import { useState } from "react"
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, shortcut: "⌥D" },
-  { href: "/vendors", label: "Vendors", icon: Building2, shortcut: "⌥V" },
-  { href: "/contracts", label: "Contracts", icon: FileText, shortcut: "⌥C" },
+  { href: "/vendors", label: "Vendors & Contracts", icon: Building2, shortcut: "⌥V" },
   { href: "/operations", label: "Operations", icon: Database },
-  { href: "/breaches", label: "Breaches", icon: AlertTriangle, shortcut: "⌥B" },
-  { href: "/claims", label: "Claims", icon: Mail, shortcut: "⌥M" },
+  { href: "/breaches", label: "Breaches & Claims", icon: AlertTriangle, shortcut: "⌥B" },
   { href: "/audit", label: "Audit Log", icon: Activity },
 ]
 
@@ -60,7 +56,9 @@ export function Sidebar() {
           const isActive =
             item.href === "/"
               ? pathname === "/"
-              : pathname.startsWith(item.href)
+              : pathname.startsWith(item.href) ||
+                (item.href === "/vendors" && pathname.startsWith("/contracts")) ||
+                (item.href === "/breaches" && pathname.startsWith("/claims"))
           const Icon = item.icon
           return (
             <Link

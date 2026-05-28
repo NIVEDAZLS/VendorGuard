@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import {
   Building2,
   Mail,
@@ -10,7 +10,10 @@ import {
   FileText,
   BadgeCheck,
   Activity,
+  Upload,
+  X,
 } from "lucide-react"
+import { useDropzone } from "react-dropzone"
 import { PageHeader } from "@/components/layout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,14 +28,16 @@ import {
 } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { useDataStore } from "@/lib/store"
 import { timeAgo } from "@/lib/utils/format"
-import { VendorAPI } from "@/lib/api"
+import { VendorAPI, ContractAPI } from "@/lib/api"
 import { toast } from "sonner"
 
 export default function VendorDetailPage() {
   const params = useParams()
   const id = params.id as string
+  const router = useRouter()
   const { vendors, contracts, slaRules, operationalEvents, auditEntries } =
     useDataStore()
 
@@ -56,6 +61,15 @@ export default function VendorDetailPage() {
   const [editContact, setEditContact] = useState(vendor?.contactName ?? "")
   const [editEmail, setEditEmail] = useState(vendor?.contactEmail ?? "")
   const [editOwner, setEditOwner] = useState(vendor?.relationshipOwner ?? "")
+  const [contractFile, setContractFile] = useState<File | null>(null)
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: { "application/pdf": [".pdf"] },
+    maxFiles: 1,
+    onDrop: (accepted) => {
+      if (accepted.length > 0) setContractFile(accepted[0])
+    },
+  })
 
   if (!vendor) {
     return (
@@ -72,8 +86,17 @@ export default function VendorDetailPage() {
       contactEmail: editEmail,
       relationshipOwner: editOwner,
     })
-    toast.success("Vendor updated")
-    setEditOpen(false)
+
+    if (contractFile) {
+      const contract = await ContractAPI.upload(id, contractFile)
+      setContractFile(null)
+      setEditOpen(false)
+      toast.success("Vendor updated with new contract")
+      router.push(`/contracts/${contract.id}`)
+    } else {
+      toast.success("Vendor updated")
+      setEditOpen(false)
+    }
   }
 
   const statusBadge = (status: string) => {
@@ -120,6 +143,53 @@ export default function VendorDetailPage() {
                   <Label>Relationship owner</Label>
                   <Input value={editOwner} onChange={(e) => setEditOwner(e.target.value)} />
                 </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label>Upload new contract (optional)</Label>
+                  <div
+                    {...getRootProps()}
+                    className={`relative flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${
+                      isDragActive
+                        ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950"
+                        : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                    }`}
+                  >
+                    <input {...getInputProps()} />
+                    {contractFile ? (
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-7 w-7 text-emerald-500" />
+                        <div>
+                          <p className="text-sm font-medium">{contractFile.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(contractFile.size / 1024).toFixed(0)} KB
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setContractFile(null)
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload className="mb-2 h-5 w-5 text-muted-foreground" />
+                        <p className="text-sm font-medium">
+                          {isDragActive ? "Drop file here" : "Drag & drop PDF"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 <Button onClick={handleSave} className="w-full">
                   Save changes
                 </Button>

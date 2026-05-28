@@ -15,10 +15,10 @@ function useBreadcrumbs() {
   const crumbs: { label: string; href: string }[] = []
 
   const labels: Record<string, string> = {
-    vendors: "Vendors",
+    vendors: "Vendors & Contracts",
     contracts: "Contracts",
     operations: "Operations",
-    breaches: "Breaches",
+    breaches: "Breaches & Claims",
     claims: "Claims",
     audit: "Audit Log",
   }
