@@ -44,7 +44,6 @@ export default function ContractManagerPage() {
   const now = new Date()
   const thirtyDaysAgo = subDays(now, 30)
   const vendorMap = new Map(vendors.map((v) => [v.id, v]))
-  const eventMap = new Map(operationalEvents.map((e) => [e.id, e]))
 
   const approvedContracts = contracts.filter((c) => c.status === "approved")
   const totalRules = slaRules.length

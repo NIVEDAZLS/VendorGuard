@@ -38,7 +38,7 @@ function StatusPill({ status }: { status: "Healthy" | "At Risk" | "Critical" }) 
 }
 
 export default function PortfolioOverviewPage() {
-  const { vendors, contracts, breaches, operationalEvents, slaRules } = useDataStore()
+  const { vendors, contracts, breaches, operationalEvents } = useDataStore()
 
   const now = new Date()
   const thirtyDaysAgo = subDays(now, 30)
@@ -69,9 +69,6 @@ export default function PortfolioOverviewPage() {
   const contractsMonitored = vendors.filter((v) =>
     approvedContractVendorIds.has(v.id)
   ).length
-
-  const eventMap = new Map(operationalEvents.map((e) => [e.id, e]))
-  const ruleMap = new Map(slaRules.map((r) => [r.id, r]))
 
   const vendorRows = vendors
     .filter((v) => approvedContractVendorIds.has(v.id))
