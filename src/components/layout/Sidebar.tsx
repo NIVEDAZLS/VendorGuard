@@ -23,7 +23,6 @@ const navSections = [
     items: [
       { href: "/", label: "Portfolio Overview", icon: LayoutDashboard, shortcut: "⌥D" },
       { href: "/contracts", label: "Contract Manager", icon: FileText },
-      { href: "/breaches", label: "Breach Log", icon: AlertTriangle, shortcut: "⌥B" },
     ],
   },
   {
