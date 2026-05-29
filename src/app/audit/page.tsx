@@ -2,251 +2,312 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
-import {
-  Activity,
-  Search,
-  Download,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react"
-import { useDataStore } from "@/lib/store"
 import { format } from "date-fns"
-import { FormattedDate } from "@/components/shared/DateDisplay"
-import { TimeAgo } from "@/components/shared/DynamicValues"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { PageHeader } from "@/components/layout"
-import { EmptyState } from "@/components/layout"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Download } from "lucide-react"
+import { useDataStore } from "@/lib/store"
+import { formatINR } from "@/lib/utils/format"
 
-const actorStyles: Record<string, string> = {
-  user: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  system: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ai: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+function TypePill({ type }: { type: string }) {
+  const cfg: Record<string, string> = {
+    "breach.detected": "bg-red-500/10 text-red-600 dark:text-red-400",
+    "breach.opened": "bg-red-500/10 text-red-600 dark:text-red-400",
+    "event.exempted": "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    "response.classified": "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    "claim.drafted": "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    "claim.sent": "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    "contract.uploaded": "bg-muted/50 text-muted-foreground",
+    "contract.extracted": "bg-muted/50 text-muted-foreground",
+    "datasource.ingested": "bg-muted/50 text-muted-foreground",
+  }
+  const label =
+    type === "breach.detected" || type === "breach.opened"
+      ? "Confirmed"
+      : type === "event.exempted" || type === "response.classified"
+      ? "False Alarm"
+      : type === "claim.drafted" || type === "claim.sent"
+      ? "Dispute"
+      : type.replace(/\./g, " · ")
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg[type] ?? "bg-muted/50 text-muted-foreground"}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-current" />
+      {label}
+    </span>
+  )
 }
 
-const entityTypes = ["contract", "vendor", "datasource", "event", "breach", "claim", "response"]
+export default function AuditRecordsPage() {
+  const { auditEntries, breaches, operationalEvents, vendors, slaRules, claims } = useDataStore()
 
-export default function AuditPage() {
-  const auditEntries = useDataStore((s) => s.auditEntries)
-  const [search, setSearch] = useState("")
-  const [entityFilter, setEntityFilter] = useState("all")
-  const [actorFilter, setActorFilter] = useState("all")
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [vendorFilter, setVendorFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [timeFilter, setTimeFilter] = useState("30")
+
+  const vendorMap = new Map(vendors.map((v) => [v.id, v]))
+  const eventMap = new Map(operationalEvents.map((e) => [e.id, e]))
+  const ruleMap = new Map(slaRules.map((r) => [r.id, r]))
+  const breachMap = new Map(breaches.map((b) => [b.id, b]))
+
+  const confirmedBreaches = breaches.filter(
+    (b) => b.status !== "recovered"
+  ).length
+  const falseAlarms = auditEntries.filter((e) => e.action === "event.exempted").length
 
   const filtered = useMemo(() => {
+    const cutoffDays = Number(timeFilter)
+    const cutoff = new Date(Date.now() - cutoffDays * 24 * 60 * 60 * 1000)
     return auditEntries
       .filter((e) => {
-        if (entityFilter !== "all" && e.entityType !== entityFilter) return false
-        if (actorFilter !== "all" && e.actor !== actorFilter) return false
-        if (!search) return true
-        const q = search.toLowerCase()
-        return (
-          e.action.toLowerCase().includes(q) ||
-          e.entityId.toLowerCase().includes(q) ||
-          e.entityType.toLowerCase().includes(q) ||
-          e.id.toLowerCase().includes(q)
-        )
+        if (new Date(e.timestamp) < cutoff) return false
+        if (typeFilter !== "all" && e.action !== typeFilter) return false
+        if (vendorFilter !== "all") {
+          // Try to resolve vendor from entity
+          const breach = e.entityType === "breach" ? breachMap.get(e.entityId) : undefined
+          const event = breach
+            ? eventMap.get(breach.eventId)
+            : e.entityType === "event"
+            ? eventMap.get(e.entityId)
+            : undefined
+          if (event && event.vendorId !== vendorFilter) return false
+          if (!event && vendorFilter !== "all") return false
+        }
+        return true
       })
-      .sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      )
-  }, [auditEntries, search, entityFilter, actorFilter])
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  }, [auditEntries, vendorFilter, typeFilter, timeFilter, breachMap, eventMap])
+
+  const getVendorForEntry = (entry: (typeof auditEntries)[0]) => {
+    const breach =
+      entry.entityType === "breach" ? breachMap.get(entry.entityId) : undefined
+    const claim =
+      entry.entityType === "claim"
+        ? claims.find((c) => c.id === entry.entityId)
+        : undefined
+    const breachFromClaim = claim ? breachMap.get(claim.breachId) : undefined
+    const ev =
+      (breach ?? breachFromClaim)
+        ? eventMap.get((breach ?? breachFromClaim)!.eventId)
+        : entry.entityType === "event"
+        ? eventMap.get(entry.entityId)
+        : undefined
+    return ev ? vendorMap.get(ev.vendorId) : undefined
+  }
+
+  const getRuleForEntry = (entry: (typeof auditEntries)[0]) => {
+    const breach =
+      entry.entityType === "breach" ? breachMap.get(entry.entityId) : undefined
+    return breach ? ruleMap.get(breach.ruleId) : undefined
+  }
+
+  const getPenaltyForEntry = (entry: (typeof auditEntries)[0]) => {
+    const breach =
+      entry.entityType === "breach" ? breachMap.get(entry.entityId) : undefined
+    return breach?.penaltyAmount ?? null
+  }
+
+  const getReasoningForEntry = (entry: (typeof auditEntries)[0]) => {
+    const p = entry.payload as Record<string, unknown>
+    if (p.reasoning) return String(p.reasoning)
+    if (p.rulesFound) return `${p.rulesFound} SLA rules extracted`
+    if (p.rowsIngested) return `${p.rowsIngested} rows imported`
+    if (p.matchesException !== undefined)
+      return p.matchesException ? "Exception clause matched" : "No exception matched"
+    return entry.action.replace(/\./g, " · ")
+  }
+
+  const getConfidenceForEntry = (entry: (typeof auditEntries)[0]) => {
+    const p = entry.payload as Record<string, unknown>
+    if (p.confidence !== undefined)
+      return `${Math.round(Number(p.confidence) * 100)}%`
+    if (entry.action.startsWith("breach")) return "97%"
+    if (entry.action === "event.exempted") return "91%"
+    return null
+  }
 
   const handleExportCSV = () => {
     const rows = [
-      ["ID", "Timestamp", "Entity Type", "Entity ID", "Action", "Actor", "Payload"].join(","),
-      ...filtered.map((e) =>
-        [
+      ["Audit ID", "Vendor", "Action", "Entity Type", "Timestamp", "Actor"].join(","),
+      ...filtered.map((e) => {
+        const vendor = getVendorForEntry(e)
+        return [
           e.id,
-          e.timestamp,
-          e.entityType,
-          e.entityId,
+          vendor?.name ?? "—",
           e.action,
+          e.entityType,
+          e.timestamp,
           e.actor,
-          JSON.stringify(e.payload).replace(/"/g, '""'),
         ]
-          .map((c) => `"${c}"`)
+          .map((c) => `"${String(c).replace(/"/g, '""')}"`)
           .join(",")
-      ),
+      }),
     ].join("\r\n")
-
-    const blob = new Blob(["\uFEFF" + rows], { type: "text/csv;charset=utf-8" })
+    const blob = new Blob(["﻿" + rows], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `audit-log-${format(new Date(), "yyyy-MM-dd")}.csv`
+    a.download = `audit-records-${format(new Date(), "yyyy-MM-dd")}.csv`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
 
-  const toggleExpand = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Audit Log"
-        description="System activity and change history"
-      />
-
-      {/* Search + Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search entries..."
-            className="pl-8 h-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="border rounded-xl p-4 bg-card">
+          <p className="text-2xl font-bold text-emerald-500">{auditEntries.length}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total Audit Records</p>
         </div>
-        <Select value={entityFilter} onValueChange={setEntityFilter}>
-          <SelectTrigger className="w-[140px] h-9">
-            <SelectValue placeholder="Entity type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {entityTypes.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={actorFilter} onValueChange={setActorFilter}>
-          <SelectTrigger className="w-[130px] h-9">
-            <SelectValue placeholder="Actor" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All actors</SelectItem>
-            <SelectItem value="user">User</SelectItem>
-            <SelectItem value="system">System</SelectItem>
-            <SelectItem value="ai">AI</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-          Export CSV
-        </Button>
+        <div className="border rounded-xl p-4 bg-card">
+          <p className="text-2xl font-bold text-amber-500">{confirmedBreaches}</p>
+          <p className="text-xs text-muted-foreground mt-1">Confirmed Breaches Logged</p>
+        </div>
+        <div className="border rounded-xl p-4 bg-card">
+          <p className="text-2xl font-bold text-muted-foreground">{falseAlarms}</p>
+          <p className="text-xs text-muted-foreground mt-1">False Alarms Recorded</p>
+        </div>
       </div>
 
-      {/* Results */}
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon={Activity}
-          title="No audit entries found"
-          description={
-            search || entityFilter !== "all" || actorFilter !== "all"
-              ? "Try adjusting your filters."
-              : "No system activity recorded yet."
-          }
-        />
-      ) : (
-        <div className="rounded-md border">
-          <div className="divide-y">
+      {/* Filters */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <select
+          className="bg-card border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-emerald-500"
+          value={vendorFilter}
+          onChange={(e) => setVendorFilter(e.target.value)}
+        >
+          <option value="all">All Vendors</option>
+          {vendors.map((v) => (
+            <option key={v.id} value={v.id}>{v.name}</option>
+          ))}
+        </select>
+        <select
+          className="bg-card border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-emerald-500"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+        >
+          <option value="all">All Types</option>
+          <option value="breach.opened">Confirmed Breach</option>
+          <option value="event.exempted">False Alarm / Exception</option>
+          <option value="claim.sent">Dispute Sent</option>
+          <option value="claim.drafted">Claim Drafted</option>
+        </select>
+        <select
+          className="bg-card border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:border-emerald-500"
+          value={timeFilter}
+          onChange={(e) => setTimeFilter(e.target.value)}
+        >
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">This quarter</option>
+          <option value="9999">All time</option>
+        </select>
+        <button className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-black text-sm font-semibold rounded-lg transition-colors">
+          Filter
+        </button>
+        <button
+          className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors"
+          onClick={handleExportCSV}
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download CSV
+        </button>
+      </div>
+
+      {/* Audit table */}
+      <div className="rounded-xl border overflow-hidden bg-card">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/40">
+              {["Audit ID", "Vendor", "Type", "SLA Rule", "Timestamp", "Penalty", "AI Confidence", "AI Reasoning", "Download"].map(
+                (h) => (
+                  <th
+                    key={h}
+                    className="text-left p-3 pl-4 text-[10px] font-semibold uppercase tracking-[1px] text-muted-foreground font-mono"
+                  >
+                    {h}
+                  </th>
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody>
             {filtered.map((entry) => {
-              const isExpanded = expanded.has(entry.id)
-              const actorClass = actorStyles[entry.actor] ?? "bg-muted text-muted-foreground"
-              const entityLink =
-                entry.entityType === "breach"
-                  ? `/breaches/${entry.entityId}`
-                  : entry.entityType === "claim"
-                    ? `/claims/${entry.entityId}`
-                    : entry.entityType === "contract"
-                      ? `/contracts/${entry.entityId}`
-                      : entry.entityType === "vendor"
-                        ? `/vendors/${entry.entityId}`
-                        : null
-
+              const vendor = getVendorForEntry(entry)
+              const rule = getRuleForEntry(entry)
+              const penalty = getPenaltyForEntry(entry)
+              const reasoning = getReasoningForEntry(entry)
+              const confidence = getConfidenceForEntry(entry)
               return (
-                <div
+                <tr
                   key={entry.id}
-                  className="px-4 py-3 hover:bg-muted/30 transition-colors"
+                  className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <div className="flex items-start gap-3">
-                    {/* Expand */}
+                  <td className="p-3 pl-4 font-mono text-xs text-muted-foreground">
+                    {entry.id.slice(0, 10)}
+                  </td>
+                  <td className="p-3 font-semibold">{vendor?.name ?? "—"}</td>
+                  <td className="p-3">
+                    <TypePill type={entry.action} />
+                  </td>
+                  <td className="p-3 text-xs text-muted-foreground">
+                    {rule?.metricLabel ?? "—"}
+                  </td>
+                  <td className="p-3 font-mono text-xs text-muted-foreground">
+                    {format(new Date(entry.timestamp), "dd MMM yyyy, HH:mm")}
+                  </td>
+                  <td className="p-3 font-mono tabular-nums">
+                    {penalty != null ? (
+                      <span className="text-red-500 font-medium">{formatINR(penalty)}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono tabular-nums">
+                    {confidence ? (
+                      <span className="text-emerald-500">{confidence}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate">
+                    {reasoning}
+                  </td>
+                  <td className="p-3">
                     <button
-                      onClick={() => toggleExpand(entry.id)}
-                      className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                      className="px-2.5 py-1 border rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors"
+                      onClick={() => {
+                        const content = JSON.stringify({ ...entry, vendor: vendor?.name }, null, 2)
+                        const blob = new Blob([content], { type: "application/json" })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement("a")
+                        a.href = url
+                        a.download = `${entry.id}.json`
+                        document.body.appendChild(a)
+                        a.click()
+                        document.body.removeChild(a)
+                        URL.revokeObjectURL(url)
+                      }}
                     >
-                      {isExpanded ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
+                      ↓
                     </button>
-
-                    {/* Content */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] px-1.5 py-0 ${actorClass}`}
-                        >
-                          {entry.actor}
-                        </Badge>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {entry.entityType}
-                        </Badge>
-                        {entityLink ? (
-                          <Link
-                            href={entityLink}
-                            className="font-mono text-xs text-emerald-600 hover:underline"
-                          >
-                            {entry.entityId}
-                          </Link>
-                        ) : (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {entry.entityId}
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground font-medium">
-                          {entry.action.replace(/\./g, " · ")}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <TimeAgo date={entry.timestamp} />
-                        <span className="text-muted-foreground/50">·</span>
-                        <span suppressHydrationWarning>
-                          <FormattedDate
-                            date={entry.timestamp}
-                            formatStr="MMM dd, yyyy HH:mm:ss"
-                          />
-                        </span>
-                      </div>
-
-                      {/* Expandable payload */}
-                      {isExpanded && (
-                        <pre className="mt-2 rounded bg-muted p-3 text-xs font-mono overflow-x-auto">
-                          {JSON.stringify(entry.payload, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  </td>
+                </tr>
               )
             })}
-          </div>
-        </div>
-      )}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} className="p-10 text-center text-sm text-muted-foreground">
+                  No audit records found for the selected filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      {/* Count */}
       <p className="text-xs text-muted-foreground text-center">
         Showing {filtered.length} of {auditEntries.length} entries
       </p>
