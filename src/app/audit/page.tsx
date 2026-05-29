@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import Link from "next/link"
 import { format } from "date-fns"
 import { Download } from "lucide-react"
 import { useDataStore } from "@/lib/store"
@@ -44,10 +43,10 @@ export default function AuditRecordsPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [timeFilter, setTimeFilter] = useState("30")
 
-  const vendorMap = new Map(vendors.map((v) => [v.id, v]))
-  const eventMap = new Map(operationalEvents.map((e) => [e.id, e]))
-  const ruleMap = new Map(slaRules.map((r) => [r.id, r]))
-  const breachMap = new Map(breaches.map((b) => [b.id, b]))
+  const vendorMap = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors])
+  const eventMap = useMemo(() => new Map(operationalEvents.map((e) => [e.id, e])), [operationalEvents])
+  const ruleMap = useMemo(() => new Map(slaRules.map((r) => [r.id, r])), [slaRules])
+  const breachMap = useMemo(() => new Map(breaches.map((b) => [b.id, b])), [breaches])
 
   const confirmedBreaches = breaches.filter(
     (b) => b.status !== "recovered"
