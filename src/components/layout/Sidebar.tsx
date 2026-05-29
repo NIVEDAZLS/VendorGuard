@@ -3,12 +3,13 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  Shield,
   LayoutDashboard,
+  FileText,
+  AlertTriangle,
+  Mail,
+  ClipboardList,
   Building2,
   Database,
-  AlertTriangle,
-  Activity,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
@@ -16,12 +17,30 @@ import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useState } from "react"
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, shortcut: "⌥D" },
-  { href: "/vendors", label: "Vendors & Contracts", icon: Building2, shortcut: "⌥V" },
-  { href: "/operations", label: "Operations", icon: Database },
-  { href: "/breaches", label: "Breaches & Claims", icon: AlertTriangle, shortcut: "⌥B" },
-  { href: "/audit", label: "Audit Log", icon: Activity },
+const navSections = [
+  {
+    label: "Monitor",
+    items: [
+      { href: "/", label: "Portfolio Overview", icon: LayoutDashboard, shortcut: "⌥D" },
+      { href: "/contracts", label: "Contract Manager", icon: FileText },
+      { href: "/breaches", label: "Breach Log", icon: AlertTriangle, shortcut: "⌥B" },
+    ],
+  },
+  {
+    label: "Manage",
+    items: [
+      { href: "/vendors", label: "Vendors & Contracts", icon: Building2, shortcut: "⌥V" },
+      { href: "/operations", label: "Operations", icon: Database },
+      { href: "/breaches", label: "Breaches & Claims", icon: AlertTriangle },
+    ],
+  },
+  {
+    label: "Actions",
+    items: [
+      { href: "/claims", label: "Dispute Review", icon: Mail },
+      { href: "/audit", label: "Audit Records", icon: ClipboardList },
+    ],
+  },
 ]
 
 export function Sidebar() {
@@ -31,64 +50,76 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-30 flex h-full flex-col border-r bg-background transition-all duration-300",
+        "fixed left-0 top-0 z-30 flex h-full flex-col border-r bg-background transition-all duration-300 overflow-y-auto",
         collapsed ? "w-16" : "w-60"
       )}
     >
       {/* Logo */}
       <div
         className={cn(
-          "flex h-14 items-center border-b px-4",
+          "flex h-14 items-center border-b px-4 shrink-0",
           collapsed && "justify-center px-0"
         )}
       >
-        <Shield className="h-5 w-5 shrink-0 text-emerald-600" />
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500 text-black font-bold text-xs">
+          VG
+        </div>
         {!collapsed && (
-          <span className="ml-2.5 text-sm font-semibold tracking-tight">
-            VendorGuard
-          </span>
+          <div className="ml-2.5">
+            <div className="text-sm font-semibold tracking-tight leading-none">VendorGuard</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5 uppercase tracking-widest">SLA Intelligence</div>
+          </div>
         )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-1 px-2 py-4">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href) ||
-                (item.href === "/vendors" && pathname.startsWith("/contracts")) ||
-                (item.href === "/breaches" && pathname.startsWith("/claims"))
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                "hover:bg-accent hover:text-accent-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
-                isActive
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                  : "text-muted-foreground",
-                collapsed && "justify-center px-0"
-              )}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span className="flex-1">{item.label}</span>}
-              {!collapsed && item.shortcut && (
-                <kbd className="text-[10px] text-muted-foreground/50 font-mono">{item.shortcut}</kbd>
-              )}
-            </Link>
-          )
-        })}
+      <nav className="flex-1 px-2 py-3 space-y-3">
+        {navSections.map((section) => (
+          <div key={section.label}>
+            {!collapsed && (
+              <p className="px-3 mb-1 text-[9px] font-semibold uppercase tracking-[1.5px] text-muted-foreground">
+                {section.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const isActive =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(item.href)
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={`${section.label}-${item.href}`}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      "hover:bg-accent hover:text-accent-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
+                      isActive
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                        : "text-muted-foreground",
+                      collapsed && "justify-center px-0"
+                    )}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {!collapsed && <span className="flex-1">{item.label}</span>}
+                    {!collapsed && item.shortcut && (
+                      <kbd className="text-[10px] text-muted-foreground/50 font-mono">{item.shortcut}</kbd>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* User */}
       <div
         className={cn(
-          "flex items-center gap-3 border-t px-4 py-3",
+          "flex items-center gap-3 border-t px-4 py-3 shrink-0",
           collapsed && "justify-center px-0"
         )}
       >
