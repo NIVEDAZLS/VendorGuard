@@ -26,10 +26,12 @@
    import type { ContractAPI } from "@/lib/api/contracts"
 */
 
-export { mockContractAPI as ContractAPI } from "./contracts"
-export { mockVendorAPI as VendorAPI } from "./vendors"
+export { realVendorAPI as VendorAPI } from "./vendors.real"
+export { realContractAPI as ContractAPI } from "./contracts.real"
+export { realBreachAPI as BreachAPI } from "./breaches.real"
+export { realClaimAPI as ClaimAPI } from "./claims.real"
+
+// Not yet wired to backend — keep mock for now
 export { mockDataSourceAPI as DataSourceAPI } from "./dataSources"
 export { mockEventAPI as EventAPI } from "./events"
-export { mockBreachAPI as BreachAPI } from "./breaches"
-export { mockClaimAPI as ClaimAPI } from "./claims"
 export { mockVendorResponseAPI as VendorResponseAPI } from "./vendorResponses"

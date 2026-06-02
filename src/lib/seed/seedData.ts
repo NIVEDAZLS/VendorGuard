@@ -806,15 +806,15 @@ export interface SeedData {
 
 export function getSeedData(): SeedData {
   return {
-    vendors,
-    contracts,
-    slaRules,
-    dataSources,
-    operationalEvents,
-    atRiskItems,
-    vendorResponses,
-    breaches,
-    claims,
-    auditEntries,
+    vendors: [],
+    contracts: [],
+    slaRules: [],
+    dataSources: [],
+    operationalEvents: [],
+    atRiskItems: [],
+    vendorResponses: [],
+    breaches: [],
+    claims: [],
+    auditEntries: [],
   }
 }

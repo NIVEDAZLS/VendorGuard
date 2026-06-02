@@ -34,3 +34,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Local development files
+Implementation.txt
+vendorguard_dashboard (1).html
+
+# Python cache
+__pycache__/
+*.pyc
+local_storage/

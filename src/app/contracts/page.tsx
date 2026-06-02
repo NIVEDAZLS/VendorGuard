@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { Upload, FileText } from "lucide-react"
 import { PageHeader } from "@/components/layout"
@@ -14,8 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useDataStore } from "@/lib/store"
 import { UploadContractDialog } from "@/components/shared/UploadContractDialog"
+import { VendorAPI } from "@/lib/api"
+import type { Vendor, Contract } from "@/lib/types"
 
 const statusLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "warning" | "success" }> = {
   uploaded: { label: "Uploaded", variant: "secondary" },
@@ -28,11 +29,48 @@ export default function ContractsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [vendorFilter, setVendorFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  const { contracts, vendors, slaRules } = useDataStore()
 
-  const vendorMap = new Map(vendors.map((v) => [v.id, v]))
+  const [contracts, setContracts] = useState<Array<Contract & { ruleCount: number }>>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const filtered = contracts.filter((c) => {
+  const loadData = useCallback(async () => {
+    const [cs, vs] = await Promise.all([
+      fetch("http://localhost:8000/api/contracts/").then(r => r.json()).catch(() => []),
+      VendorAPI.list().catch(() => []),
+    ])
+    setVendors(vs)
+    setContracts(
+      (cs as Record<string, unknown>[]).map(r => ({
+        id: r.id as string,
+        vendorId: (r.vendor_id ?? "") as string,
+        fileName: (r.file_name ?? "") as string,
+        status: (r.status ?? "uploaded") as Contract["status"],
+        uploadedAt: (r.uploaded_at ?? new Date().toISOString()) as string,
+        ruleCount: Number(r.rule_count ?? 0),
+      }))
+    )
+  }, [])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Auto-refresh every 5s while any contract is extracting
+  useEffect(() => {
+    const hasExtracting = contracts.some(c => c.status === "extracting")
+    if (hasExtracting && !pollRef.current) {
+      pollRef.current = setInterval(loadData, 5000)
+    } else if (!hasExtracting && pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+  }, [contracts, loadData])
+
+  const vendorMap = new Map(vendors.map(v => [v.id, v]))
+
+  const filtered = contracts.filter(c => {
     if (vendorFilter !== "all" && c.vendorId !== vendorFilter) return false
     if (statusFilter !== "all" && c.status !== statusFilter) return false
     return true
@@ -60,10 +98,8 @@ export default function ContractsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All vendors</SelectItem>
-              {vendors.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {v.name}
-                </SelectItem>
+              {vendors.map(v => (
+                <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -97,20 +133,12 @@ export default function ContractsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => {
+            {filtered.map(c => {
               const v = vendorMap.get(c.vendorId)
-              const initials = v?.name
-                ?.split(" ")
-                .map((n) => n[0])
-                .join("")
-                .slice(0, 2) ?? "??"
-              const ruleCount = slaRules.filter((r) => r.contractId === c.id).length
-              const s = statusLabels[c.status] ?? { label: c.status, variant: "outline" }
+              const initials = v?.name?.split(" ").map(n => n[0]).join("").slice(0, 2) ?? "??"
+              const s = statusLabels[c.status] ?? { label: c.status, variant: "outline" as const }
               return (
-                <tr
-                  key={c.id}
-                  className="border-b last:border-0 hover:bg-muted/50 transition-colors"
-                >
+                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
                   <td className="p-3 pl-4">
                     <Link href={`/contracts/${c.id}`} className="flex items-center gap-3">
                       <FileText className="h-4 w-4 text-muted-foreground" />
@@ -131,7 +159,7 @@ export default function ContractsPage() {
                     </Link>
                   </td>
                   <td className="p-3 text-muted-foreground">
-                    <Link href={`/contracts/${c.id}`} className="block">{ruleCount}</Link>
+                    <Link href={`/contracts/${c.id}`} className="block">{c.ruleCount}</Link>
                   </td>
                   <td className="p-3 text-muted-foreground">
                     <Link href={`/contracts/${c.id}`} className="block">
@@ -152,7 +180,11 @@ export default function ContractsPage() {
         </table>
       </div>
 
-      <UploadContractDialog open={uploadOpen} onOpenChange={setUploadOpen} />
+      <UploadContractDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploaded={loadData}
+      />
     </div>
   )
 }

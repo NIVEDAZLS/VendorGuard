@@ -137,6 +137,7 @@ export const useDataStore = create<DataStore>()(
     }),
     {
       name: "vendorguard-store",
+      version: 2,
     }
   )
 )

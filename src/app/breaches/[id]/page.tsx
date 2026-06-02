@@ -1,611 +1,438 @@
 "use client"
 
-import { useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useState, useEffect, useCallback } from "react"
+import { useParams } from "next/navigation"
 import {
-  AlertTriangle,
-  Clock,
-  FileText,
-  Sparkles,
-  Truck,
-  CheckCircle,
-  XCircle,
-  Send,
-  DollarSign,
-  Scale,
-  Activity,
+  AlertTriangle, Scale, FileText, Send, Link2, CheckCircle,
+  Activity, Sparkles, ChevronLeft, Loader2,
 } from "lucide-react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { useDataStore } from "@/lib/store"
-import { BreachAPI } from "@/lib/api"
-import { formatINR, timeAgo } from "@/lib/utils/format"
-import { CurrencyValue, TimeAgo } from "@/components/shared/DynamicValues"
-import { SimulateResponseDialog } from "@/components/shared/SimulateResponseDialog"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
-import { format, differenceInHours } from "date-fns"
-import type { Breach, AuditEntry } from "@/lib/types"
 
-const statusLabels: Record<string, string> = {
-  pending: "Pending",
-  exempted: "Exempted",
-  resolved_compliant: "Resolved",
-  breached: "Breached",
+const BASE = "http://localhost:8000/api"
+
+interface BreachDetail {
+  id: string
+  vendor_id: string
+  vendor_name: string
+  contact_email: string
+  log_id: string | null
+  rule_id: string | null
+  order_id: string | null
+  metric_name: string | null
+  threshold_hours: number | null
+  threshold_unit: string | null
+  penalty_type: string | null
+  penalty_value: number | null
+  contract_section: string | null
+  exception_clauses: string[]
+  actual_hours: number
+  delay_hours: number
+  penalty_amount: number
+  dispute_status: string
+  confidence: number
+  reasoning: string
+  breached_at: string
+  started_at: string | null
+  completed_at: string | null
+  metadata: Record<string, unknown>
 }
 
-const breachStatusLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "warning" | "success" | "destructive" }> = {
-  open: { label: "Open", variant: "secondary" },
-  claim_drafted: { label: "Claim drafted", variant: "warning" },
-  claim_sent: { label: "Claim sent", variant: "default" },
-  recovered: { label: "Recovered", variant: "success" },
-  disputed: { label: "Disputed", variant: "destructive" },
+interface DisputeDraft {
+  id: string
+  breach_id: string
+  vendor_name: string
+  contact_email: string
+  email_subject: string
+  email_body: string
+  status: string
+  payment_status: string
+  penalty_amount: number
+  metric_name: string | null
+  delay_hours: number | null
+  created_at: string
+  sent_at: string | null
 }
 
-const actorStyles: Record<string, string> = {
-  user: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  system: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ai: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+const statusConfig: Record<string, { label: string; cls: string }> = {
+  open:           { label: "Open",           cls: "bg-red-50 text-red-700 border-red-200" },
+  pending_review: { label: "Pending Review", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  sent:           { label: "Claim Sent",     cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  paid:           { label: "Paid",           cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  disputed:       { label: "Disputed",       cls: "bg-red-50 text-red-700 border-red-200" },
+  waived:         { label: "Waived",         cls: "bg-gray-50 text-gray-500 border-gray-200" },
+}
+
+function formatINR(n: number | null) {
+  if (!n) return "—"
+  return "INR " + Math.round(n).toLocaleString("en-IN")
+}
+
+function formatDate(s: string | null) {
+  if (!s) return "—"
+  return new Date(s).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
 }
 
 export default function BreachDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const id = params.id as string
-  const {
-    atRiskItems,
-    breaches,
-    operationalEvents,
-    vendors,
-    slaRules,
-    vendorResponses,
-    auditEntries,
-    claims,
-    updateAtRiskItem,
-  } = useDataStore()
+  const { id } = useParams<{ id: string }>()
+  const [breach, setBreach] = useState<BreachDetail | null>(null)
+  const [dispute, setDispute] = useState<DisputeDraft | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [sendLoading, setSendLoading] = useState(false)
+  const [linkLoading, setLinkLoading] = useState(false)
+  const [magicLinkResult, setMagicLinkResult] = useState<{ magic_url: string; expires_at: string; recipient: string } | null>(null)
+  const [editingBody, setEditingBody] = useState(false)
+  const [editedBody, setEditedBody] = useState("")
+  const [savingBody, setSavingBody] = useState(false)
 
-  const [simulateOpen, setSimulateOpen] = useState(false)
+  const loadData = useCallback(async () => {
+    const [breachData, disputeData] = await Promise.all([
+      fetch(`${BASE}/breaches/${id}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/disputes/breach/${id}`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ])
+    setBreach(breachData)
+    setDispute(disputeData)
+    if (disputeData?.email_body) setEditedBody(disputeData.email_body)
+    setLoading(false)
+  }, [id])
 
-  // Determine if this is an at-risk item or a breach
-  const atRiskItem = atRiskItems.find((a) => a.id === id)
-  const breach = breaches.find((b) => b.id === id)
+  useEffect(() => { loadData() }, [loadData])
 
-  // Shared lookups
-  const event = atRiskItem
-    ? operationalEvents.find((e) => e.id === atRiskItem.eventId)
-    : breach
-      ? operationalEvents.find((e) => e.id === breach.eventId)
-      : undefined
-  const vendor = event ? vendors.find((v) => v.id === event.vendorId) : undefined
-  const rule = atRiskItem
-    ? slaRules.find((r) => r.id === atRiskItem.ruleId)
-    : breach
-      ? slaRules.find((r) => r.id === breach.ruleId)
-      : undefined
-
-  // Audit trail for this entity
-  const entityAudit = auditEntries.filter(
-    (e) => e.entityId === id || e.entityId === event?.id
-  )
-
-  // Derived from at-risk
-  const response = atRiskItem
-    ? vendorResponses.find((vr) => vr.atRiskItemId === atRiskItem.id)
-    : undefined
-
-  // ─── At-risk mode ─────────────────────────────────────────────────────
-
-  const handleSimulateResult = (result: {
-    matchesException: boolean
-    clauseId?: string
-    clauseText?: string
-    reasoning: string
-    confidence: number
-    responseText: string
-  }) => {
-    // Set the response in store (simplified — just update at-risk item)
-    updateAtRiskItem(id, {
-      status: result.matchesException ? "exempted" : "breached",
-    })
-    // Add audit entry
-    useDataStore.getState().addAuditEntry({
-      id: `aud-${Date.now()}`,
-      entityType: "response",
-      entityId: id,
-      action: "response.classified",
-      actor: "ai",
-      payload: {
-        matchesException: result.matchesException,
-        confidence: result.confidence,
-      },
-      timestamp: new Date().toISOString(),
-    })
-    toast.success(
-      result.matchesException
-        ? "Exception accepted — vendor exempted"
-        : "No exception — breach confirmed"
-    )
+  const handleGenerateDraft = async () => {
+    setDraftLoading(true)
+    try {
+      const r = await fetch(`${BASE}/disputes/breach/${id}/draft`, { method: "POST" })
+      if (!r.ok) throw new Error(await r.text())
+      const data = await r.json()
+      toast.success("Dispute email drafted by AI")
+      setDispute({ ...data, status: "pending_review" } as DisputeDraft)
+      setEditedBody(data.email_body ?? "")
+    } catch (e) {
+      toast.error("Failed to generate draft: " + String(e))
+    } finally {
+      setDraftLoading(false)
+    }
   }
 
-  const handleMarkBreached = () => {
-    updateAtRiskItem(id, { status: "breached" })
-    toast.success("Marked as breached")
+  const handleSaveBody = async () => {
+    setSavingBody(true)
+    try {
+      const r = await fetch(`${BASE}/disputes/breach/${id}/email-body`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_body: editedBody }),
+      })
+      if (!r.ok) throw new Error(await r.text())
+      setDispute(d => d ? { ...d, email_body: editedBody } : d)
+      setEditingBody(false)
+      toast.success("Email body saved")
+    } catch (e) {
+      toast.error("Save failed: " + String(e))
+    } finally {
+      setSavingBody(false)
+    }
   }
 
-  const handleMarkResolved = () => {
-    updateAtRiskItem(id, { status: "resolved_compliant" })
-    toast.success("Marked as resolved — compliant")
+  const handleSendEmail = async () => {
+    setSendLoading(true)
+    try {
+      const r = await fetch(`${BASE}/disputes/breach/${id}/send`, { method: "POST" })
+      if (!r.ok) throw new Error(await r.text())
+      const data = await r.json()
+      toast.success(`Email sent to ${data.recipient}`)
+      setBreach(b => b ? { ...b, dispute_status: "sent" } : b)
+      setDispute(d => d ? { ...d, status: "sent" } : d)
+    } catch (e) {
+      toast.error("Send failed: " + String(e))
+    } finally {
+      setSendLoading(false)
+    }
   }
 
-  // ─── Breach mode ──────────────────────────────────────────────────────
-
-  const handleBreachAction = async (status: Breach["status"]) => {
-    if (!breach) return
-    await BreachAPI.updateStatus(breach.id, status)
-    toast.success(`Breach status updated to ${status.replace("_", " ")}`)
+  const handleMagicLink = async () => {
+    setLinkLoading(true)
+    try {
+      const r = await fetch(`${BASE}/disputes/breach/${id}/magic-link`, { method: "POST" })
+      if (!r.ok) throw new Error(await r.text())
+      const data = await r.json()
+      setMagicLinkResult(data)
+      toast.success(`Magic link sent to ${data.recipient}`)
+    } catch (e) {
+      toast.error("Failed: " + String(e))
+    } finally {
+      setLinkLoading(false)
+    }
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────
-
-  if (!atRiskItem && !breach) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh] text-muted-foreground">
-        Item not found
+      <div className="flex items-center justify-center min-h-[50vh] text-muted-foreground gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading breach…
       </div>
     )
   }
 
-  // ─── At-risk detail ───────────────────────────────────────────────────
-  if (atRiskItem) {
-    const isPending = atRiskItem.status === "pending"
-    const shippedDate = event ? new Date(event.shippedAt) : new Date()
-    const deadlineDate = event ? new Date(event.deadlineAt) : new Date()
-    const now = new Date()
-    const totalWindow = differenceInHours(deadlineDate, shippedDate)
-    const elapsed = differenceInHours(now, shippedDate)
-    const remaining = Math.max(0, totalWindow - elapsed)
-    const alertSentAgo = timeAgo(atRiskItem.alertSentAt)
-
+  if (!breach) {
     return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <div className="flex items-start justify-between gap-4 mb-1">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {vendor?.name ?? "—"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Order {event?.externalId ?? "—"} · {event?.destination ?? "—"}
-              </p>
-            </div>
-            <Badge variant={isPending ? "warning" : atRiskItem.status === "exempted" ? "success" : "destructive"}>
-              {statusLabels[atRiskItem.status] ?? atRiskItem.status}
-            </Badge>
-          </div>
-        </div>
-
-        {/* Status banner */}
-        {isPending && (
-          <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950">
-            <CardContent className="flex items-center gap-3 pt-4">
-              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  At risk — alert was sent to vendor {alertSentAgo}, awaiting response
-                </p>
-                {remaining > 0 ? (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                    {Math.round(remaining)} hours remaining before SLA deadline
-                  </p>
-                ) : (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-                    Past deadline by {Math.round(Math.abs(remaining))} hours
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Timeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              Timeline
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="relative flex items-center justify-between px-2">
-              {/* Track line */}
-              <div className="absolute left-0 right-0 top-4 h-0.5 bg-border" />
-              {/* Segments */}
-              <div
-                className="absolute left-0 top-4 h-0.5 bg-emerald-500 transition-all"
-                style={{
-                  width: `${Math.min(100, (elapsed / totalWindow) * 100)}%`,
-                }}
-              />
-              {/* Markers */}
-              {[
-                { label: "Shipped", time: format(shippedDate, "MMM dd HH:mm"), icon: Truck, pos: "0%" },
-                { label: "Alert fired", time: alertSentAgo, icon: AlertTriangle, pos: `${Math.min(70, (differenceInHours(new Date(atRiskItem.alertSentAt), shippedDate) / totalWindow) * 100)}%` },
-                { label: "Deadline", time: format(deadlineDate, "MMM dd HH:mm"), icon: Clock, pos: "100%" },
-              ].map((m, i) => {
-                const Icon = m.icon
-                return (
-                  <div key={i} className="relative z-10 flex flex-col items-center" style={{ marginLeft: i === 0 ? 0 : undefined, marginRight: i === 2 ? 0 : undefined }}>
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
-                      i < 2 ? "bg-emerald-50 border-emerald-500 dark:bg-emerald-950" : "bg-background border-muted-foreground"
-                    }`}>
-                      <Icon className={`h-3.5 w-3.5 ${i < 2 ? "text-emerald-500" : "text-muted-foreground"}`} />
-                    </div>
-                    <p className="mt-2 text-xs font-medium">{m.label}</p>
-                    <p className="text-[10px] text-muted-foreground">{m.time}</p>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="mt-6 text-center">
-              <p className="text-2xl font-semibold tabular-nums">
-                {Math.round(remaining)}h
-              </p>
-              <p className="text-xs text-muted-foreground">remaining</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* SLA being tracked */}
-        {rule && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                SLA being tracked
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{rule.metricType.replace("_", " ")}</Badge>
-                <span className="text-sm font-medium">{rule.metricLabel}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Threshold</p>
-                  <p className="font-medium tabular-nums">{rule.threshold.value} {rule.threshold.unit}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Penalty</p>
-                  <p className="font-medium">{rule.penalty.type === "percent" ? `${rule.penalty.value}% of ${rule.penalty.basis}` : `₹${rule.penalty.value}/${rule.penalty.basis}`}</p>
-                </div>
-              </div>
-              {rule.exceptions.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Exceptions</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {rule.exceptions.map((ex, i) => (
-                      <Badge key={i} variant="secondary" className="text-[10px] font-normal">
-                        {ex.condition} (&gt;{ex.modifiedThreshold.value}{ex.modifiedThreshold.unit})
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer hover:text-foreground">View contract clause</summary>
-                <p className="mt-2 italic p-2 rounded bg-muted">{rule.rawClauseText}</p>
-              </details>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Vendor alert */}
-        {atRiskItem && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Send className="h-4 w-4 text-muted-foreground" />
-                Vendor alert
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span suppressHydrationWarning>Sent <TimeAgo date={atRiskItem.alertSentAt} /></span>
-              </div>
-              <details>
-                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">View alert body</summary>
-                <pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                  {`⚠️ SLA Alert — At-Risk Shipment\n\nVendor: ${vendor?.name ?? "—"}\nOrder Ref: ${event?.externalId ?? "—"}\nDestination: ${event?.destination ?? "—"}\nOrder Value: ${event?.orderValue ? formatINR(event.orderValue) : "—"}\nSLA Deadline: ${event?.deadlineAt ? format(new Date(event.deadlineAt), "MMM dd, yyyy HH:mm") : "—"}\n\nThis shipment is approaching its SLA deadline and is at risk of breaching the agreed delivery timeline. Please take immediate action.\n\n— VendorGuard AI Monitoring`}
-                </pre>
-              </details>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Vendor response */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              Vendor response
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {response ? (
-              <div className="space-y-3">
-                <div className="rounded-md bg-muted p-3 text-sm">{response.responseText}</div>
-                <p className="text-xs text-muted-foreground" suppressHydrationWarning>Received <TimeAgo date={response.receivedAt} /></p>
-                {response.aiClassification && (
-                  <Card className={response.aiClassification.matchesException ? "border-emerald-200 dark:border-emerald-800" : "border-red-200 dark:border-red-800"}>
-                    <CardContent className="pt-4 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-emerald-500" />
-                        <span className="text-sm font-medium">AI Classification</span>
-                        <Badge variant={response.aiClassification.matchesException ? "success" : "destructive"}>
-                          {response.aiClassification.matchesException ? "Exception matched" : "No match"}
-                        </Badge>
-                      </div>
-                      {response.aiClassification.clauseText && (
-                        <p className="text-xs bg-muted p-2 rounded">
-                          <span className="font-medium">Matched: </span>{response.aiClassification.clauseText}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">{response.aiClassification.reasoning}</p>
-                      <p className="text-xs">Confidence: {Math.round(response.aiClassification.confidence * 100)}%</p>
-                      <div className="flex gap-2 pt-1">
-                        <Button size="sm" variant="outline" onClick={handleMarkBreached}>Reject</Button>
-                        <Button size="sm" onClick={() => { updateAtRiskItem(id, { status: "exempted" }); toast.success("Exception accepted") }}>
-                          Accept exception
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            ) : isPending ? (
-              <div className="flex flex-col items-center py-6 text-center">
-                <Clock className="h-6 w-6 text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground mb-3">No response yet from vendor</p>
-                <Button variant="outline" onClick={() => setSimulateOpen(true)}>
-                  Simulate vendor response
-                </Button>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">No response submitted</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Resolve actions */}
-        {isPending && (
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={handleMarkBreached}>
-              <XCircle className="mr-1.5 h-4 w-4" />
-              Mark as breached
-            </Button>
-            <Button variant="outline" onClick={handleMarkResolved}>
-              <CheckCircle className="mr-1.5 h-4 w-4" />
-              Mark resolved (no breach)
-            </Button>
-          </div>
-        )}
-
-        {/* Simulate dialog */}
-        <SimulateResponseDialog
-          open={simulateOpen}
-          onOpenChange={setSimulateOpen}
-          ruleExceptions={rule?.exceptions.map((e) => e.condition) ?? []}
-          onResult={handleSimulateResult}
-        />
-
-        {/* Audit trail */}
-        <AuditTrail entries={entityAudit} />
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-muted-foreground gap-3">
+        <AlertTriangle className="h-8 w-8" />
+        <p>Breach not found</p>
+        <Link href="/breaches"><Button variant="outline" size="sm">Back to breaches</Button></Link>
       </div>
     )
   }
 
-  // ─── Breach detail ─────────────────────────────────────────────────
-  if (breach) {
-    const s = breachStatusLabels[breach.status] ?? { label: breach.status, variant: "secondary" }
-    const penaltyPercent = slaRules.find((r) => r.id === breach.ruleId)?.penalty.value ?? 5
-    const penaltyFormula = `${penaltyPercent}% of ${formatINR(breach.evidence.orderValue)}`
-
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <div className="flex items-start justify-between gap-4 mb-1">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {vendor?.name ?? "—"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Order {event?.externalId ?? "—"} · {event?.destination ?? "—"}
-              </p>
-            </div>
-            <Badge variant={s.variant}>{s.label}</Badge>
-          </div>
-        </div>
-
-        {/* Red banner */}
-        <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
-          <CardContent className="flex items-center gap-3 pt-4">
-            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                Breach confirmed — {breach.evidence.hoursOverdue}h overdue
-              </p>
-              <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-                Contract clause: {breach.evidence.contractClause}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Evidence card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Scale className="h-4 w-4 text-muted-foreground" />
-              Breach evidence
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Shipped</p>
-                  <p className="font-medium tabular-nums">{format(new Date(breach.evidence.shippedAt), "MMM dd, yyyy HH:mm")}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Scheduled delivery</p>
-                  <p className="font-medium tabular-nums">{format(new Date(breach.evidence.deadlineAt), "MMM dd, yyyy HH:mm")}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Actual delivery</p>
-                  <p className="font-medium tabular-nums">{breach.evidence.deliveredAt ? format(new Date(breach.evidence.deliveredAt), "MMM dd, yyyy HH:mm") : "Not delivered"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Hours overdue</p>
-                  <p className="font-medium tabular-nums text-red-500">{breach.evidence.hoursOverdue}h</p>
-                </div>
-              </div>
-              <Separator />
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Applicable clause</p>
-                <div className="rounded-md bg-muted p-3 text-xs">
-                  <span className="font-medium">{breach.evidence.contractClause}</span>
-                  {rule && <p className="mt-1 italic">{rule.rawClauseText}</p>}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Financial impact */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-              Financial impact
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-semibold tabular-nums text-red-500">
-              <CurrencyValue value={breach.penaltyAmount} />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {penaltyFormula} = {formatINR(breach.penaltyAmount)}
-            </p>
-            <div className="mt-3 rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              Order value: {formatINR(breach.evidence.orderValue)} ·
-              Penalty rate: {penaltyPercent}% per day overdue
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 mb-3">
-              <Badge variant={s.variant} className="text-xs">{s.label}</Badge>
-              <span className="text-xs text-muted-foreground" suppressHydrationWarning>
-                Breached <TimeAgo date={breach.breachedAt} />
-              </span>
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-wrap gap-2">
-              {breach.status === "open" && (
-                <Button size="sm" onClick={() => router.push(`/breaches/${breach.id}/claim`)}>
-                  <FileText className="mr-1.5 h-3.5 w-3.5" />
-                  Generate claim
-                </Button>
-              )}
-              {(breach.status === "claim_drafted" || breach.status === "claim_sent") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const claim = claims.find((c) => c.breachId === breach.id)
-                    if (claim) router.push(`/claims/${claim.id}`)
-                    else router.push(`/breaches/${breach.id}/claim`)
-                  }}
-                >
-                  View claim
-                </Button>
-              )}
-              {breach.status === "claim_sent" && (
-                <>
-                  <Button size="sm" variant="outline" onClick={() => handleBreachAction("recovered")}>
-                    <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
-                    Mark recovered
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => handleBreachAction("disputed")}>
-                    <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                    Mark disputed
-                  </Button>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Audit trail */}
-        <AuditTrail entries={entityAudit} />
-      </div>
-    )
-  }
-
-  return null
-}
-
-// ─── Shared audit trail sub-component ─────────────────────────────────
-
-function AuditTrail({ entries }: { entries: AuditEntry[] }) {
-  const sorted = [...entries].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  )
-
-  if (sorted.length === 0) return null
+  const sc = statusConfig[breach.dispute_status] ?? { label: breach.dispute_status, cls: "bg-muted text-muted-foreground" }
+  const hasDraft = !!dispute
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Activity className="h-4 w-4 text-muted-foreground" />
-          Audit trail
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-0">
-        {sorted.map((entry, i) => (
-          <div key={entry.id} className="relative flex gap-4 pb-5 last:pb-0">
-            {i < sorted.length - 1 && (
-              <div className="absolute left-[15px] top-8 bottom-0 w-px bg-border" />
-            )}
-            <div className="relative z-10 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background">
-              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="space-y-6 max-w-4xl">
+      {/* Back */}
+      <Link href="/breaches" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <ChevronLeft className="h-4 w-4" /> All breaches
+      </Link>
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">{breach.vendor_name ?? "—"}</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {breach.metric_name ?? "SLA Breach"} · Ref {breach.order_id ?? "—"}
+            {breach.contract_section && <span className="ml-2 font-mono text-xs">§{breach.contract_section}</span>}
+          </p>
+        </div>
+        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${sc.cls}`}>{sc.label}</span>
+      </div>
+
+      {/* Red banner */}
+      <Card className="border-red-200 bg-red-50">
+        <CardContent className="flex items-center gap-3 pt-4 pb-4">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-red-800">
+              Breach confirmed — {breach.delay_hours.toFixed(1)}h overdue
+            </p>
+            <p className="text-xs text-red-600 mt-0.5">{breach.reasoning}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Evidence */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Scale className="h-4 w-4 text-muted-foreground" /> Breach evidence
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">SLA threshold</p>
+              <p className="font-medium tabular-nums">{breach.threshold_hours ?? "—"} {breach.threshold_unit ?? "hours"}</p>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm">{entry.action}</p>
-              <div className="mt-0.5 flex items-center gap-2">
-                <span className="text-xs text-muted-foreground" suppressHydrationWarning><TimeAgo date={entry.timestamp} /></span>
-                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${actorStyles[entry.actor] ?? ""}`}>
-                  {entry.actor}
-                </Badge>
-              </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Actual duration</p>
+              <p className="font-medium tabular-nums text-red-600">{breach.actual_hours.toFixed(1)}h</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Delay</p>
+              <p className="font-medium tabular-nums text-red-600">+{breach.delay_hours.toFixed(1)}h</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">AI confidence</p>
+              <p className={`font-medium tabular-nums ${breach.confidence >= 90 ? "text-emerald-600" : "text-amber-600"}`}>{breach.confidence}%</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Started</p>
+              <p className="font-medium tabular-nums">{formatDate(breach.started_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Completed</p>
+              <p className="font-medium tabular-nums">{formatDate(breach.completed_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Detected at</p>
+              <p className="font-medium tabular-nums">{formatDate(breach.breached_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Vendor email</p>
+              <p className="font-medium text-xs truncate">{breach.contact_email ?? "—"}</p>
             </div>
           </div>
-        ))}
-      </CardContent>
-    </Card>
+
+          {breach.exception_clauses && breach.exception_clauses.length > 0 && (
+            <>
+              <Separator className="my-4" />
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Exception clauses in contract</p>
+                <div className="space-y-1">
+                  {breach.exception_clauses.map((ex, i) => (
+                    <p key={i} className="text-xs bg-muted rounded px-2 py-1 italic">{ex}</p>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Financial impact */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Scale className="h-4 w-4 text-muted-foreground" /> Financial impact
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-semibold tabular-nums text-red-500">{formatINR(breach.penalty_amount)}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {breach.penalty_type === "per_unit" && `INR ${breach.penalty_value?.toLocaleString("en-IN")} × ${breach.delay_hours.toFixed(1)}h delay`}
+            {breach.penalty_type === "fixed" && `Fixed penalty`}
+            {breach.penalty_type === "percentage" && `${breach.penalty_value}% of invoice`}
+            {(!breach.penalty_type || breach.penalty_type === "none") && "See contract for penalty terms"}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Dispute email draft */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" /> Dispute email
+            {hasDraft && <Badge variant="secondary" className="text-[10px] ml-1">{dispute?.status}</Badge>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!hasDraft ? (
+            <div className="flex flex-col items-center py-6 text-center gap-3">
+              <Sparkles className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No email draft yet. Generate one using AI.</p>
+              <Button onClick={handleGenerateDraft} disabled={draftLoading} className="gap-2">
+                {draftLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {draftLoading ? "Drafting with AI…" : "Generate dispute email (AI)"}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-md bg-muted/50 border px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium">To:</span> {dispute?.contact_email ?? breach.contact_email ?? "—"} &nbsp;|&nbsp;
+                <span className="font-medium">Subject:</span> {dispute?.email_subject ?? "—"}
+              </div>
+
+              {editingBody ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={editedBody}
+                    onChange={e => setEditedBody(e.target.value)}
+                    rows={16}
+                    className="font-mono text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveBody} disabled={savingBody}>
+                      {savingBody ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                      Save changes
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { setEditingBody(false); setEditedBody(dispute?.email_body ?? "") }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative group">
+                  <pre className="whitespace-pre-wrap rounded-md bg-muted/50 border p-4 text-xs text-foreground font-sans leading-relaxed max-h-80 overflow-y-auto">
+                    {dispute?.email_body}
+                  </pre>
+                  <Button
+                    size="sm" variant="outline"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs h-7"
+                    onClick={() => { setEditingBody(true); setEditedBody(dispute?.email_body ?? "") }}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              )}
+
+              {/* Actions */}
+              {!editingBody && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {dispute?.status !== "sent" && (
+                    <Button onClick={handleSendEmail} disabled={sendLoading} className="gap-2">
+                      {sendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {sendLoading ? "Sending…" : "Send to vendor"}
+                    </Button>
+                  )}
+                  {dispute?.status === "sent" && (
+                    <div className="flex items-center gap-1.5 text-sm text-emerald-600">
+                      <CheckCircle className="h-4 w-4" /> Email sent {dispute.sent_at ? formatDate(dispute.sent_at) : ""}
+                    </div>
+                  )}
+                  <Button variant="outline" onClick={handleGenerateDraft} disabled={draftLoading} className="gap-2">
+                    {draftLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    Regenerate
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Magic link / pre-breach exception */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Link2 className="h-4 w-4 text-muted-foreground" /> Vendor exception portal
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Send the vendor a one-time secure link where they can submit an exception reason. The link expires in 7 days and is single-use.
+          </p>
+          {magicLinkResult ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-sm text-emerald-600">
+                <CheckCircle className="h-4 w-4" /> Link sent to {magicLinkResult.recipient}
+              </div>
+              <div className="rounded-md bg-muted/50 border p-3 space-y-1">
+                <p className="text-xs text-muted-foreground">Magic link (for testing):</p>
+                <p className="text-xs font-mono break-all text-blue-600">{magicLinkResult.magic_url}</p>
+                <p className="text-xs text-muted-foreground">Expires: {formatDate(magicLinkResult.expires_at)}</p>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" onClick={handleMagicLink} disabled={linkLoading} className="gap-2">
+              {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              {linkLoading ? "Sending…" : "Send exception link to vendor"}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Audit */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Activity className="h-4 w-4 text-muted-foreground" /> System notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground leading-relaxed">{breach.reasoning}</p>
+          {breach.metadata && Object.keys(breach.metadata).length > 0 && (
+            <details className="mt-3">
+              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">Raw log metadata</summary>
+              <pre className="mt-2 text-[11px] bg-muted rounded p-2 overflow-x-auto">
+                {JSON.stringify(breach.metadata, null, 2)}
+              </pre>
+            </details>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

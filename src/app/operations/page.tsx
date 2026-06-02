@@ -1,11 +1,10 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Upload, Database } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Database, Activity } from "lucide-react"
 import { PageHeader } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -13,97 +12,130 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useDataStore } from "@/lib/store"
-import { formatINR, timeAgo } from "@/lib/utils/format"
-import { UploadOperationsWizard } from "@/components/shared/UploadOperationsWizard"
+import { VendorAPI } from "@/lib/api"
+import type { Vendor } from "@/lib/types"
 
-const statusLabels: Record<string, { label: string; variant: "success" | "secondary" | "warning" | "destructive" | "default" }> = {
-  compliant: { label: "Compliant", variant: "success" },
-  in_transit: { label: "In transit", variant: "secondary" },
-  at_risk: { label: "At risk", variant: "warning" },
-  exempted: { label: "Exempted", variant: "default" },
-  breached: { label: "Breached", variant: "destructive" },
+const BASE = "http://localhost:8000/api"
+
+interface OpLog {
+  id: string
+  vendor_id: string
+  vendor_name: string
+  event_type: string
+  external_id: string
+  started_at: string
+  completed_at: string | null
+  duration_hours: number | null
+  status: "in_progress" | "completed"
+  metadata: Record<string, unknown>
+}
+
+interface VendorSummary {
+  vendor_id: string
+  vendor_name: string
+  total: number
+  in_progress: number
+  completed: number
+  latest: string | null
+}
+
+const statusConfig: Record<string, { label: string; variant: "success" | "secondary" | "warning" | "destructive" | "default" }> = {
+  completed:   { label: "Completed",   variant: "success" },
+  in_progress: { label: "In Progress", variant: "warning" },
+}
+
+function formatEventType(t: string): string {
+  return t.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function formatDuration(hours: number | null): string {
+  if (hours === null) return "—"
+  if (hours < 1) return `${Math.round(hours * 60)} min`
+  return `${hours.toFixed(1)}h`
 }
 
 export default function OperationsPage() {
-  const [wizardOpen, setWizardOpen] = useState(false)
   const [vendorFilter, setVendorFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  const { vendors, dataSources, operationalEvents } = useDataStore()
+  const [logs, setLogs] = useState<OpLog[]>([])
+  const [summary, setSummary] = useState<VendorSummary[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const vendorMap = new Map(vendors.map((v) => [v.id, v]))
+  const loadData = useCallback(async () => {
+    const params = new URLSearchParams({ limit: "200" })
+    if (vendorFilter !== "all") params.set("vendor_id", vendorFilter)
 
-  // Data sources with event counts
-  const sourceStats = dataSources.map((ds) => {
-    const v = vendorMap.get(ds.vendorId)
-    const eventCount = operationalEvents.filter((e) => e.sourceId === ds.id).length
-    return { ...ds, vendorName: v?.name ?? "—", eventCount }
-  })
+    const [logsData, summaryData, vendorsData] = await Promise.all([
+      fetch(`${BASE}/operations/?${params}`).then(r => r.json()).catch(() => []),
+      fetch(`${BASE}/operations/summary`).then(r => r.json()).catch(() => []),
+      VendorAPI.list().catch(() => []),
+    ])
 
-  // Filtered events
-  const filteredEvents = useMemo(() => {
-    let events = [...operationalEvents].sort(
-      (a, b) => new Date(b.shippedAt).getTime() - new Date(a.shippedAt).getTime()
-    )
-    if (vendorFilter !== "all") {
-      events = events.filter((e) => e.vendorId === vendorFilter)
-    }
+    let filtered = logsData as OpLog[]
     if (statusFilter !== "all") {
-      events = events.filter((e) => e.status === statusFilter)
+      filtered = filtered.filter(l => l.status === statusFilter)
     }
-    return events.slice(0, 50)
-  }, [operationalEvents, vendorFilter, statusFilter])
+
+    setLogs(filtered)
+    setSummary(summaryData as VendorSummary[])
+    setVendors(vendorsData)
+    setLoading(false)
+  }, [vendorFilter, statusFilter])
+
+  useEffect(() => { loadData() }, [loadData])
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Operations"
-        description="Monitor operational events and data sources"
-        actions={
-          <Button onClick={() => setWizardOpen(true)} size="sm">
-            <Upload className="mr-1.5 h-4 w-4" />
-            Upload operational data
-          </Button>
-        }
+        description="Real-time operational log events from vendor systems"
+        actions={null}
       />
 
-      {/* Data source cards */}
+      {/* Vendor summary cards */}
       <div>
-        <h2 className="text-sm font-medium mb-3">Connected data sources</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {sourceStats.map((ds) => (
-            <Card key={ds.id}>
+        <h2 className="text-sm font-medium mb-3">Vendor activity summary</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {summary.map((s) => (
+            <Card key={s.vendor_id}>
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4 text-emerald-500" />
-                    <div>
-                      <CardTitle className="text-sm font-medium">
-                        {ds.vendorName}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground">{ds.name}</p>
-                    </div>
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm font-medium truncate">{s.vendor_name}</CardTitle>
+                    <p className="text-xs text-muted-foreground font-mono">{s.vendor_id}</p>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Events ingested</span>
-                  <span className="font-medium tabular-nums">{ds.eventCount}</span>
+              <CardContent className="space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total events</span>
+                  <span className="font-semibold tabular-nums">{s.total.toLocaleString()}</span>
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Last ingested</span>
-                  <span className="font-medium tabular-nums">
-                    {ds.lastIngestedAt ? timeAgo(ds.lastIngestedAt) : "Never"}
-                  </span>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">In progress</span>
+                  <span className="font-semibold tabular-nums text-amber-600">{s.in_progress}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Completed</span>
+                  <span className="font-semibold tabular-nums text-emerald-600">{s.completed.toLocaleString()}</span>
+                </div>
+                {s.latest && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Latest event</span>
+                    <span className="tabular-nums">
+                      {new Date(s.latest).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
-          {sourceStats.length === 0 && (
+          {summary.length === 0 && !loading && (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                No data sources configured
+                No operational logs found
               </CardContent>
             </Card>
           )}
@@ -119,10 +151,8 @@ export default function OperationsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All vendors</SelectItem>
-              {vendors.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {v.name}
-                </SelectItem>
+              {vendors.map(v => (
+                <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -134,14 +164,14 @@ export default function OperationsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="compliant">Compliant</SelectItem>
-              <SelectItem value="in_transit">In transit</SelectItem>
-              <SelectItem value="at_risk">At risk</SelectItem>
-              <SelectItem value="breached">Breached</SelectItem>
-              <SelectItem value="exempted">Exempted</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
             </SelectContent>
           </Select>
         </div>
+        <p className="text-xs text-muted-foreground ml-auto">
+          Showing {logs.length} events
+        </p>
       </div>
 
       {/* Events table */}
@@ -150,57 +180,53 @@ export default function OperationsPage() {
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="text-left font-medium p-3 pl-4">Vendor</th>
-              <th className="text-left font-medium p-3">Order ID</th>
-              <th className="text-left font-medium p-3">Shipped</th>
-              <th className="text-left font-medium p-3">Deadline</th>
+              <th className="text-left font-medium p-3">Event type</th>
+              <th className="text-left font-medium p-3">Reference ID</th>
+              <th className="text-left font-medium p-3">Started</th>
+              <th className="text-left font-medium p-3">Duration</th>
               <th className="text-left font-medium p-3">Status</th>
-              <th className="text-right font-medium p-3 pr-4">Value</th>
             </tr>
           </thead>
           <tbody>
-            {filteredEvents.map((e) => {
-              const v = vendorMap.get(e.vendorId)
-              const s = statusLabels[e.status] ?? { label: e.status, variant: "default" }
-              return (
-                <tr
-                  key={e.id}
-                  className="border-b last:border-0 hover:bg-muted/50 transition-colors"
-                >
-                  <td className="p-3 pl-4 font-medium">{v?.name ?? "—"}</td>
-                  <td className="p-3 text-muted-foreground tabular-nums">{e.externalId}</td>
-                  <td className="p-3 text-muted-foreground tabular-nums">
-                    {new Date(e.shippedAt).toLocaleDateString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </td>
-                  <td className="p-3 text-muted-foreground tabular-nums">
-                    {new Date(e.deadlineAt).toLocaleDateString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </td>
-                  <td className="p-3">
-                    <Badge variant={s.variant}>{s.label}</Badge>
-                  </td>
-                  <td className="p-3 pr-4 text-right tabular-nums font-medium">
-                    {formatINR(e.orderValue)}
-                  </td>
-                </tr>
-              )
-            })}
-            {filteredEvents.length === 0 && (
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
+                  <Activity className="h-4 w-4 animate-pulse inline mr-2" />
+                  Loading events…
+                </td>
+              </tr>
+            ) : logs.length === 0 ? (
               <tr>
                 <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
                   No events found
                 </td>
               </tr>
+            ) : (
+              logs.map(log => {
+                const s = statusConfig[log.status] ?? { label: log.status, variant: "default" as const }
+                return (
+                  <tr key={log.id} className="border-b last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="p-3 pl-4 font-medium">{log.vendor_name}</td>
+                    <td className="p-3 text-muted-foreground">{formatEventType(log.event_type)}</td>
+                    <td className="p-3 font-mono text-xs text-muted-foreground">{log.external_id}</td>
+                    <td className="p-3 text-muted-foreground tabular-nums">
+                      {new Date(log.started_at).toLocaleDateString("en-IN", {
+                        day: "numeric", month: "short", year: "2-digit",
+                      })}
+                    </td>
+                    <td className="p-3 tabular-nums text-muted-foreground">
+                      {formatDuration(log.duration_hours)}
+                    </td>
+                    <td className="p-3">
+                      <Badge variant={s.variant}>{s.label}</Badge>
+                    </td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>
       </div>
-
-      <UploadOperationsWizard open={wizardOpen} onOpenChange={setWizardOpen} />
     </div>
   )
 }

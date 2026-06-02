@@ -1,0 +1,34 @@
+# VendorGuard Backend Dependencies
+# Install: pip install -r requirements.txt
+
+# FastAPI
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# Database
+psycopg2-binary>=2.9.9
+
+# AI — AWS Bedrock (Nova Lite)
+boto3>=1.34.0
+
+# PDF processing
+pdfplumber>=0.11.0
+
+# Auth tokens
+PyJWT>=2.8.0
+
+# Env / secrets
+python-dotenv>=1.0.1
+
+# Email
+# (uses stdlib smtplib — no extra package needed)
+
+# HTTP (for Calendarific API)
+requests>=2.31.0
+
+# Seed script
+Faker>=24.0.0
+
+# Data validation
+pydantic>=2.7.0

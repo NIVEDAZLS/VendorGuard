@@ -98,12 +98,31 @@ export default function AuditPage() {
     })
   }
 
+  const confirmedBreaches = auditEntries.filter((e) => e.action.includes("breach")).length
+  const falseAlarms = auditEntries.filter((e) => e.action === "event.exempted").length
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-8">
       <PageHeader
-        title="Audit Log"
-        description="System activity and change history"
+        title="Audit Records"
+        description="Complete system activity and compliance change history"
       />
+
+      {/* Audit stat boxes */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="vg-audit-stat">
+          <p className="text-2xl font-bold text-emerald-600 tabular-nums">{auditEntries.length}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total Audit Records</p>
+        </div>
+        <div className="vg-audit-stat">
+          <p className="text-2xl font-bold text-amber-600 tabular-nums">{confirmedBreaches}</p>
+          <p className="text-xs text-muted-foreground mt-1">Confirmed Breaches Logged</p>
+        </div>
+        <div className="vg-audit-stat">
+          <p className="text-2xl font-bold text-muted-foreground tabular-nums">{falseAlarms}</p>
+          <p className="text-xs text-muted-foreground mt-1">False Alarms Recorded</p>
+        </div>
+      </div>
 
       {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -143,6 +162,10 @@ export default function AuditPage() {
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
           <Download className="mr-1.5 h-3.5 w-3.5" />
           Export CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Download className="mr-1.5 h-3.5 w-3.5" />
+          Download PDF
         </Button>
       </div>
 

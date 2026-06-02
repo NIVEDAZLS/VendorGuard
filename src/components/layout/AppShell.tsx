@@ -10,7 +10,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <Sidebar />
-      <div className="pl-60 transition-all duration-300">
+      <div className="pl-[220px] transition-all duration-300">
         <TopBar />
         <main className="p-6 pb-0">{children}</main>
       </div>
