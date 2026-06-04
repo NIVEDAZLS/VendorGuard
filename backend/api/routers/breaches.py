@@ -61,6 +61,20 @@ def list_breaches(
     return rows
 
 
+@router.post("/{breach_id}/waive")
+def waive_breach(breach_id: str):
+    """Mark a breach as waived (finance team rejected the pre-breach exception)."""
+    with DBConn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE breaches SET dispute_status='waived' WHERE id=%s RETURNING id",
+            (breach_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Breach not found")
+    return {"breach_id": breach_id, "dispute_status": "waived"}
+
+
 @router.get("/{breach_id}")
 def get_breach(breach_id: str):
     with DBConn() as conn:

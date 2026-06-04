@@ -91,7 +91,7 @@ def get_portfolio():
         breaches_30d = r["breaches_30d"] or 0
         compliance_pct = max(0.0, ((total - breaches_30d) / total) * 100) if total > 0 else 100.0
 
-        if compliance_pct >= 97:
+        if compliance_pct > 99:
             status = "Healthy"
         elif compliance_pct >= 90:
             status = "At Risk"

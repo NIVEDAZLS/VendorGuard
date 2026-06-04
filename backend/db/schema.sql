@@ -20,8 +20,18 @@ CREATE TABLE IF NOT EXISTS contracts (
     s3_key          TEXT,
     status          TEXT NOT NULL DEFAULT 'uploaded'
                     CHECK (status IN ('uploaded','extracting','extracted','approved')),
+    extracted_text  TEXT,
     uploaded_at     TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration: add extracted_text if not present (safe to run multiple times)
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='contracts' AND column_name='extracted_text'
+    ) THEN
+        ALTER TABLE contracts ADD COLUMN extracted_text TEXT;
+    END IF;
+END $$;
 
 -- ─── SLA Rules ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sla_rules (

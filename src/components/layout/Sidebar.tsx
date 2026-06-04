@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   FileText,
   AlertTriangle,
-  Mail,
   Activity,
   ChevronLeft,
   ChevronRight,
@@ -14,22 +13,11 @@ import {
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 
-const navSections = [
-  {
-    label: "Monitor",
-    items: [
-      { href: "/", label: "Portfolio Overview", icon: LayoutDashboard },
-      { href: "/contracts", label: "Contract Manager", icon: FileText },
-      { href: "/breaches", label: "Breach Log", icon: AlertTriangle },
-    ],
-  },
-  {
-    label: "Actions",
-    items: [
-      { href: "/claims", label: "Dispute Review", icon: Mail },
-      { href: "/audit", label: "Audit Records", icon: Activity },
-    ],
-  },
+const navItems = [
+  { href: "/", label: "Portfolio Overview", icon: LayoutDashboard },
+  { href: "/contracts", label: "Contract Manager", icon: FileText },
+  { href: "/breaches", label: "Breach & Disputes", icon: AlertTriangle },
+  { href: "/audit", label: "Audit Records", icon: Activity },
 ]
 
 export function Sidebar() {
@@ -38,11 +26,8 @@ export function Sidebar() {
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/"
-    if (href === "/contracts") return pathname.startsWith("/contracts")
-    if (href === "/breaches") return pathname.startsWith("/breaches")
-    if (href === "/claims") return pathname.startsWith("/claims")
-    if (href === "/audit") return pathname.startsWith("/audit")
-    return false
+    if (href === "/breaches") return pathname.startsWith("/breaches") || pathname.startsWith("/claims")
+    return pathname.startsWith(href)
   }
 
   return (
@@ -73,41 +58,32 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-        {navSections.map((section) => (
-          <div key={section.label}>
-            {!collapsed && (
-              <p className="mb-1 px-3 text-[9px] font-semibold uppercase tracking-[1.5px] text-muted-foreground/60">
-                {section.label}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {section.items.map((item) => {
-                const active = isActive(item.href)
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                      "hover:bg-emerald-50 hover:text-emerald-700",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
-                      active
-                        ? "bg-emerald-50 text-emerald-700 border-l-2 border-emerald-500"
-                        : "text-muted-foreground border-l-2 border-transparent",
-                      collapsed && "justify-center px-2"
-                    )}
-                    title={collapsed ? item.label : undefined}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
-                  </Link>
-                )
-              })}
-            </div>
-          </div>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-2 py-3">
+        <div className="space-y-0.5">
+          {navItems.map((item) => {
+            const active = isActive(item.href)
+            const Icon = item.icon
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "hover:bg-emerald-50 hover:text-emerald-700",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+                  active
+                    ? "bg-emerald-50 text-emerald-700 border-l-2 border-emerald-500"
+                    : "text-muted-foreground border-l-2 border-transparent",
+                  collapsed && "justify-center px-2"
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
+              </Link>
+            )
+          })}
+        </div>
       </nav>
 
       {/* Footer */}

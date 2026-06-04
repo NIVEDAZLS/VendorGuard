@@ -11,7 +11,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routers import contracts, portfolio, breaches, disputes, audit, vendors, operations
+from backend.api.routers import contracts, portfolio, breaches, disputes, audit, vendors, operations, exceptions
 
 # ── logging setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -39,7 +39,8 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"]
 app.include_router(breaches.router,  prefix="/api/breaches",  tags=["breaches"])
 app.include_router(disputes.router,  prefix="/api/disputes",  tags=["disputes"])
 app.include_router(audit.router,      prefix="/api/audit",      tags=["audit"])
-app.include_router(operations.router, prefix="/api/operations", tags=["operations"])
+app.include_router(operations.router,  prefix="/api/operations",  tags=["operations"])
+app.include_router(exceptions.router,  prefix="/api/exceptions",  tags=["exceptions"])
 
 
 @app.middleware("http")

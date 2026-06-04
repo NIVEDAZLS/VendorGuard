@@ -57,3 +57,13 @@ vendorguard_dashboard (1).html
 __pycache__/
 *.pyc
 local_storage/
+
+# Terraform
+infra/.terraform/
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/lambda_package.zip
+.lambda_build/
+
+# Python virtualenv
+venv/

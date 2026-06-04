@@ -55,12 +55,24 @@ EVENT_TYPE_MAP: dict[str, list[str]] = {
     "csc_acknowledgement":             ["acknowledgement", "response"],
     # FreshRoute
     "order_to_delivery":               ["order-to-delivery", "order to delivery", "delivery cycle"],
+    "order_to_delivery_cycle":         ["order-to-delivery", "order to delivery", "delivery cycle"],
     "goods_receipt_dc":                ["goods receipt", "dc", "distribution"],
+    "goods_receipt_to_dc":             ["goods receipt", "dc", "distribution"],
     "store_fill_rate_snapshot":        ["fill rate", "service level", "sla compliance"],
+    "store_fill_rate":                 ["fill rate", "store fill", "sla compliance"],
     "transit_damage_scan":             ["damage in transit", "transit damage", "damage"],
+    "damage_in_transit_rate":          ["damage in transit", "transit damage", "damage"],
     "cold_chain_temperature_reading":  ["temperature", "cold chain"],
+    "temperature_variance":            ["temperature", "temperature variance"],
     "shelf_life_check":                ["shelf life", "expiry", "perishables shelf"],
+    "perishables_shelf_life":          ["shelf life", "expiry", "perishables"],
     "oos_incident_report":             ["out-of-stock", "oos", "oos incidents"],
+    "out_of_stock_oos_on_sku":         ["out-of-stock", "oos", "oos on sku"],
+    "sla_compliance":                  ["sla compliance", "compliance"],
+    "physical_inventory_discrepancies":["inventory", "discrepancies", "physical inventory"],
+    "capacity_and_surge_management":   ["capacity", "surge", "capacity management"],
+    "sunday_&_holiday_delivery_failure":["sunday", "holiday delivery", "delivery failure"],
+    "invoice_&_delivery_note_accuracy":["invoice", "delivery note", "accuracy"],
 }
 
 
@@ -296,6 +308,13 @@ def _run_job(lookback_hours: int, limit: int):
                 f"[{ts}] [BREACH] {vendor_id} | {event_type} | {log.get('external_id','?')}"
                 f" | delay={delay_hours:.1f}h | penalty=INR{penalty:,.0f} | id={breach_id[:8]}"
             )
+            # Auto-draft dispute email immediately after breach is confirmed
+            try:
+                from backend.agents.agent3 import draft_dispute_email
+                draft_dispute_email(breach_id)
+                print(f"[{ts}] [DRAFT] Dispute email auto-drafted for breach {breach_id[:8]}")
+            except Exception as e:
+                print(f"[breach_detection] Auto-draft failed for breach {breach_id[:8]}: {e}")
 
     print(
         f"\n[breach_detection] Done — "

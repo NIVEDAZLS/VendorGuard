@@ -16,6 +16,7 @@ import psycopg2.extras
 
 from backend.db.connection import DBConn
 from backend.utils.email import send_email
+from backend.utils.email_helpers import vendor_email
 from backend.utils.secrets import get
 
 LOCK_FILE = Path("/tmp/escalation.lock")
@@ -105,37 +106,37 @@ def _send_follow_up(d: dict, days: int) -> None:
         f"Payment remains outstanding. Please remit within 7 business days to avoid legal escalation.\n\n"
         f"VendorGuard Compliance System"
     )
-    send_email(to=d["contact_email"], subject=subject, body=body)
+    send_email(to=vendor_email(d.get("contact_email")), subject=subject, body=body)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [escalation] FOLLOW-UP sent → {d['vendor_name']} | {d['breach_id']}")
 
 
 def _send_legal_escalation(d: dict, days: int) -> None:
-    finance_email = get("FINANCE_MANAGER_EMAIL", "finance@yourcompany.com")
-    subject = f"[LEGAL ESCALATION] Unpaid SLA Penalty — {d['vendor_name']} | ₹{d.get('penalty_amount',0):,.0f}"
+    recipient = vendor_email(d.get("contact_email"))
+    subject = f"[LEGAL ESCALATION] Unpaid SLA Penalty — {d['vendor_name']} | INR {d.get('penalty_amount',0):,.0f}"
     body = (
         f"LEGAL ESCALATION NOTICE\n\n"
         f"Vendor           : {d['vendor_name']}\n"
         f"Breach Reference : {d['breach_id']}\n"
         f"SLA Rule         : {d.get('metric_name', 'N/A')}\n"
-        f"Penalty Amount   : ₹{d.get('penalty_amount', 0):,.0f}\n"
+        f"Penalty Amount   : INR {d.get('penalty_amount', 0):,.0f}\n"
         f"Dispute Sent     : {d['sent_at']}\n"
         f"Days Outstanding : {days}\n\n"
         f"This dispute has been unpaid for {days} days. "
         f"Please escalate to the legal team for further action.\n\n"
         f"VendorGuard Compliance System"
     )
-    send_email(to=finance_email, subject=subject, body=body)
-    # Also notify vendor
+    send_email(to=recipient, subject=subject, body=body)
+    # Also send vendor-facing notice
     vendor_body = (
         f"Dear {d['vendor_name']} Legal Team,\n\n"
         f"This matter has been escalated to our legal department after {days} days of non-payment.\n\n"
         f"Breach Reference : {d['breach_id']}\n"
-        f"Penalty Amount   : ₹{d.get('penalty_amount', 0):,.0f}\n\n"
+        f"Penalty Amount   : INR {d.get('penalty_amount', 0):,.0f}\n\n"
         f"Please contact our legal team immediately to resolve this matter.\n\n"
         f"VendorGuard Legal Compliance"
     )
-    send_email(to=d["contact_email"], subject=subject, body=vendor_body)
+    send_email(to=recipient, subject=subject, body=vendor_body)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [escalation] LEGAL ESCALATION → {d['vendor_name']} | {d['breach_id']} | ₹{d.get('penalty_amount',0):,.0f}")
 

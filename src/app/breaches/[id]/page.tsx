@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import {
-  AlertTriangle, Scale, FileText, Send, Link2, CheckCircle,
+  AlertTriangle, Scale, FileText, Send, CheckCircle,
   Activity, Sparkles, ChevronLeft, Loader2,
 } from "lucide-react"
 import Link from "next/link"
@@ -85,8 +85,6 @@ export default function BreachDetailPage() {
   const [loading, setLoading] = useState(true)
   const [draftLoading, setDraftLoading] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
-  const [linkLoading, setLinkLoading] = useState(false)
-  const [magicLinkResult, setMagicLinkResult] = useState<{ magic_url: string; expires_at: string; recipient: string } | null>(null)
   const [editingBody, setEditingBody] = useState(false)
   const [editedBody, setEditedBody] = useState("")
   const [savingBody, setSavingBody] = useState(false)
@@ -152,21 +150,6 @@ export default function BreachDetailPage() {
       toast.error("Send failed: " + String(e))
     } finally {
       setSendLoading(false)
-    }
-  }
-
-  const handleMagicLink = async () => {
-    setLinkLoading(true)
-    try {
-      const r = await fetch(`${BASE}/disputes/breach/${id}/magic-link`, { method: "POST" })
-      if (!r.ok) throw new Error(await r.text())
-      const data = await r.json()
-      setMagicLinkResult(data)
-      toast.success(`Magic link sent to ${data.recipient}`)
-    } catch (e) {
-      toast.error("Failed: " + String(e))
-    } finally {
-      setLinkLoading(false)
     }
   }
 
@@ -379,37 +362,6 @@ export default function BreachDetailPage() {
                 </div>
               )}
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Magic link / pre-breach exception */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-muted-foreground" /> Vendor exception portal
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Send the vendor a one-time secure link where they can submit an exception reason. The link expires in 7 days and is single-use.
-          </p>
-          {magicLinkResult ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-sm text-emerald-600">
-                <CheckCircle className="h-4 w-4" /> Link sent to {magicLinkResult.recipient}
-              </div>
-              <div className="rounded-md bg-muted/50 border p-3 space-y-1">
-                <p className="text-xs text-muted-foreground">Magic link (for testing):</p>
-                <p className="text-xs font-mono break-all text-blue-600">{magicLinkResult.magic_url}</p>
-                <p className="text-xs text-muted-foreground">Expires: {formatDate(magicLinkResult.expires_at)}</p>
-              </div>
-            </div>
-          ) : (
-            <Button variant="outline" onClick={handleMagicLink} disabled={linkLoading} className="gap-2">
-              {linkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-              {linkLoading ? "Sending…" : "Send exception link to vendor"}
-            </Button>
           )}
         </CardContent>
       </Card>

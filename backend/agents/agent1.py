@@ -101,16 +101,8 @@ Read the CONTRACT SECTION provided and identify ONLY these special clause types:
    (e.g. Section 5.3 separately penalising perishables spoilage, customer refunds, theft)
    Produce ONE separate JSON object per sub-penalty.
 
-4. AGGREGATE LIABILITY CAPS — a clause capping total penalties under the contract.
-   (e.g. "Total penalties shall not exceed 20% of annual contract value")
-   Produce one object for the cap.
-
-5. TERMINATION-FOR-CAUSE TRIGGERS — measurable conditions giving the right to terminate.
-   (e.g. "SLA compliance below 95% for 3 consecutive months")
-   Produce one object per distinct trigger condition.
-
-6. SECURITY DEPOSIT / PERFORMANCE BOND ENCASHMENT TRIGGERS — conditions under which
-   an SD or retention may be encashed.
+Do NOT extract aggregate liability caps, termination triggers, or security deposit
+encashment clauses — those are not monitorable operational metrics.
 
 Return ONLY a valid JSON array with NO prose, NO markdown code fences, NO explanation.
 Each object MUST contain exactly these keys:
@@ -135,7 +127,7 @@ Each object MUST contain exactly these keys:
                        Mandatory for tiered and banded rules to preserve context.
 
 CRITICAL RULES:
-- Only process the six special clause types listed above. Ignore plain single-threshold rules.
+- Only process the three special clause types listed above. Ignore plain single-threshold rules.
 - For escalating tiers sharing the same contract_section, each MUST have a different tier_index.
   NEVER merge them into one object.
 - If no special clauses exist in this section, return [].
@@ -200,6 +192,65 @@ CRITICAL RULES:
 - Populate note with a brief rationale explaining why this clause was missed.
 - Return nothing outside the JSON array.
 """
+
+METADATA_PROMPT = """You are a legal contract analyst. Read the CONTRACT SECTION and extract
+contract-level financial and governance metadata ONLY — not operational SLA rules.
+
+Extract ONLY these items if present:
+  - Aggregate liability cap (e.g. "total penalties shall not exceed 20% of annual contract value")
+  - Annual contract value
+  - Termination-for-cause triggers (e.g. "SLA below 95% for 3 consecutive months")
+  - Security deposit / performance bond encashment triggers
+
+Return a single JSON object (not an array) with these keys — use null if not found:
+{
+  "annual_contract_value":           <number | null>,
+  "annual_contract_value_currency":  <"INR" | "USD" | null>,
+  "max_aggregate_penalty_percent":   <number | null>,
+  "max_aggregate_penalty_amount":    <number | null>,
+  "aggregate_period_months":         <number | null>,
+  "termination_triggers":            [<string>, ...],
+  "security_deposit_triggers":       [<string>, ...]
+}
+
+Return ONLY the JSON object with NO prose, NO markdown, NO explanation.
+If none of the above exist in this section, return {"annual_contract_value": null,
+"annual_contract_value_currency": null, "max_aggregate_penalty_percent": null,
+"max_aggregate_penalty_amount": null, "aggregate_period_months": null,
+"termination_triggers": [], "security_deposit_triggers": []}.
+"""
+
+# Metric names that are never matchable by operational logs — filter before DB insert
+_NON_MONITORABLE_KEYWORDS = (
+    "aggregate liability",
+    "liability cap",
+    "termination",
+    "insolvency",
+    "bankruptcy",
+    "security deposit",
+    "performance bond",
+    "subleasing",
+    "material breach",
+    "force majeure",
+    "certifications",
+    "insurance",
+)
+
+
+def _is_monitorable(rule: dict) -> bool:
+    """Return False for rules that can never be matched by an operational log event."""
+    metric = (rule.get("metric_name") or "").lower()
+    if any(kw in metric for kw in _NON_MONITORABLE_KEYWORDS):
+        return False
+    # Rules with no time-based threshold and no tier_index are likely non-operational
+    unit = (rule.get("threshold_unit") or "").lower()
+    has_time = unit in {"hours", "business_hours", "days", "minutes", "days_hours"}
+    has_tier = rule.get("tier_index") is not None
+    has_threshold = rule.get("threshold_value") is not None
+    if not has_time and not has_tier and not has_threshold:
+        return False
+    return True
+
 
 STRICT_SUFFIX = "\nPrevious attempt failed validation. Be extra strict: return ONLY the raw JSON array."
 
@@ -384,6 +435,23 @@ def _gap_check(pdf_text: str, current_rules: list[dict]) -> list[dict]:
     return []
 
 
+# ── metadata extraction (caps, termination triggers) ─────────────────────────
+
+def _extract_metadata(pdf_text: str) -> dict:
+    """Single pass over full contract text to extract contract-level metadata."""
+    truncated = pdf_text[:_MAX_GAPCHECK_CHARS]
+    raw = _call_llm(METADATA_PROMPT, "CONTRACT SECTION:\n" + truncated, max_tokens=1024)
+    cleaned = _clean_json(raw)
+    try:
+        meta = json.loads(cleaned)
+        if not isinstance(meta, dict):
+            return {}
+        return meta
+    except json.JSONDecodeError:
+        print(f"[Agent1] Metadata extraction returned invalid JSON — skipping")
+        return {}
+
+
 # ── storage ───────────────────────────────────────────────────────────────────
 
 _KNOWN_UNITS = {
@@ -420,9 +488,13 @@ def _normalise_penalty_type(pt: str | None) -> str | None:
 
 
 def _insert_rules(rules: list[dict], vendor_id: str, contract_id: str | None) -> None:
+    monitorable = [r for r in rules if _is_monitorable(r)]
+    skipped = len(rules) - len(monitorable)
+    if skipped:
+        print(f"[Agent1] Filtered {skipped} non-monitorable rule(s) before DB insert")
     with DBConn() as conn:
         cur = conn.cursor()
-        for rule in rules:
+        for rule in monitorable:
             # Accept both new key (threshold_value) and old key (threshold_hours)
             threshold_val = (
                 rule.get("threshold_value")
@@ -464,7 +536,7 @@ def _insert_rules(rules: list[dict], vendor_id: str, contract_id: str | None) ->
                     "draft",
                 ),
             )
-    print(f"[Agent1] Inserted {len(rules)} SLA rules for vendor {vendor_id}")
+    print(f"[Agent1] Inserted {len(monitorable)} SLA rules for vendor {vendor_id}")
 
 
 def _resolve_contract_id(vendor_id: str) -> str | None:
@@ -518,13 +590,21 @@ def extract_sla_rules(pdf_text: str, vendor_id: str) -> list[dict]:
     if not rules:
         print(f"[Agent1] No SLA rules extracted for vendor {vendor_id}")
 
+    # Extract contract-level metadata (caps, termination triggers) — single pass
+    metadata = _extract_metadata(pdf_text)
+    if metadata:
+        print(f"[Agent1] Metadata: cap={metadata.get('max_aggregate_penalty_percent')}% "
+              f"of {metadata.get('annual_contract_value')} {metadata.get('annual_contract_value_currency')}")
+
     # Storage: (a) local JSON always, (b) S3/put_json, (c) PostgreSQL
+    # JSON file contains both monitorable rules AND contract metadata
     s3_key = f"sla-json/{vendor_id}_slas.json"
+    payload = {"rules": rules, "contract_metadata": metadata}
 
-    local_dest = write_local_json(rules, s3_key)
-    print(f"[Agent1] Saved {len(rules)} rules → local {local_dest.name}")
+    local_dest = write_local_json(payload, s3_key)
+    print(f"[Agent1] Saved {len(rules)} rules + metadata → local {local_dest.name}")
 
-    put_json(rules, s3_key)
+    put_json(payload, s3_key)
     print(f"[Agent1] put_json complete → {s3_key}")
 
     if rules:

@@ -8,10 +8,11 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Optional
 
 import pdfplumber
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from backend.agents.agent1 import extract_sla_rules
@@ -45,84 +46,122 @@ class ContractUploadResponse(BaseModel):
     rules_extracted: int
 
 
+def _run_extraction(contract_id: str, vendor_id: str, text: str) -> None:
+    """Background task: run Agent 1, then persist extracted_text + update status."""
+    try:
+        rules = extract_sla_rules(text, vendor_id)
+        log.info("[bg] Agent 1 complete — %d rule(s) for contract %s", len(rules), contract_id)
+        with DBConn() as conn:
+            conn.cursor().execute(
+                "UPDATE contracts SET status='extracted', extracted_text=%s WHERE id=%s",
+                (text, contract_id),
+            )
+    except Exception as exc:
+        log.error("[bg] Agent 1 failed for contract %s: %s", contract_id, exc, exc_info=True)
+        with DBConn() as conn:
+            conn.cursor().execute(
+                "UPDATE contracts SET status='uploaded' WHERE id=%s", (contract_id,)
+            )
+
+
 @router.post("/upload", response_model=ContractUploadResponse)
 async def upload_contract(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     vendor_id: str = Form(...),
+    vendor_name: str = Form(""),
 ):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are accepted")
 
-    log.info("[1/5] Received upload — file=%s  vendor=%s", file.filename, vendor_id)
+    log.info("[1/4] Received upload — file=%s  vendor=%s  name=%s", file.filename, vendor_id, vendor_name or "(none)")
 
     content = await file.read()
-    log.info("[1/5] File read — size=%d bytes", len(content))
+    log.info("[1/4] File read — size=%d bytes", len(content))
 
     contract_id = str(uuid.uuid4())
     s3_key = f"contracts/raw/{vendor_id}_{contract_id}.pdf"
 
-    # Save locally
+    # Save locally + S3
     local_path = LOCAL_RAW / f"{vendor_id}_{contract_id}.pdf"
     local_path.write_bytes(content)
     upload_file(local_path, s3_key)
-    log.info("[2/5] PDF saved — path=%s", local_path.name)
+    log.info("[2/4] PDF saved — path=%s", local_path.name)
 
-    # Insert contract row
+    # Upsert vendor row so new vendors are always in the vendors table
+    if vendor_name:
+        with DBConn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO vendors (id, name, industry, contact_email, contact_name, relationship_owner)
+                VALUES (%s, %s, 'Unknown', '', '', '')
+                ON CONFLICT (id) DO UPDATE
+                    SET name = EXCLUDED.name
+                    WHERE vendors.name = '' OR vendors.name = 'Unknown'
+                """,
+                (vendor_id, vendor_name),
+            )
+        log.info("[2b/4] Vendor upsert — vendor_id=%s  name=%s", vendor_id, vendor_name)
+
+    # Insert contract row with status='extracting'
     with DBConn() as conn:
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO contracts (id, vendor_id, file_name, s3_key, status) VALUES (%s,%s,%s,%s,'extracting')",
             (contract_id, vendor_id, file.filename, s3_key),
         )
-    log.info("[3/5] Contract row inserted — contract_id=%s  status=extracting", contract_id)
+    log.info("[3/4] Contract row inserted — contract_id=%s  status=extracting", contract_id)
 
-    # Extract text from PDF
+    # Extract text from PDF (fast, local — not blocking Bedrock)
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         pages = len(pdf.pages)
         text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-    log.info("[4/5] PDF text extracted — pages=%d  chars=%d", pages, len(text))
+    log.info("[4/4] PDF text extracted — pages=%d  chars=%d — queuing Agent 1", pages, len(text))
 
-    # Run Agent 1 (two-pass Bedrock extraction)
-    log.info("[5/5] Starting Agent 1 (Nova Lite) ...")
-    try:
-        rules = extract_sla_rules(text, vendor_id)
-        log.info("[5/5] Agent 1 complete — %d SLA rule(s) extracted", len(rules))
-        final_status = "extracted"
-    except Exception as exc:
-        log.error("[5/5] Agent 1 failed: %s", exc, exc_info=True)
-        with DBConn() as conn:
-            conn.cursor().execute(
-                "UPDATE contracts SET status='uploaded' WHERE id=%s", (contract_id,)
-            )
-        raise HTTPException(500, f"SLA extraction failed: {exc}") from exc
-
-    with DBConn() as conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE contracts SET status=%s WHERE id=%s", (final_status, contract_id))
-    log.info("Contract %s marked %s", contract_id, final_status)
+    # Run Agent 1 in background — returns immediately; frontend polls for status
+    background_tasks.add_task(_run_extraction, contract_id, vendor_id, text)
 
     return ContractUploadResponse(
         contract_id=contract_id,
         vendor_id=vendor_id,
         file_name=file.filename,
-        rules_extracted=len(rules),
+        rules_extracted=0,
     )
 
 
 @router.get("/")
-def list_contracts():
+def list_contracts(vendor_id: Optional[str] = Query(None)):
     with DBConn() as conn:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT c.id, c.vendor_id, c.file_name, c.status, c.uploaded_at,
-                   v.name AS vendor_name,
-                   COUNT(sr.id) AS rule_count
-            FROM contracts c
-            LEFT JOIN vendors v ON v.id = c.vendor_id
-            LEFT JOIN sla_rules sr ON sr.contract_id = c.id
-            GROUP BY c.id, v.name
-            ORDER BY c.uploaded_at DESC
-        """)
+        if vendor_id:
+            cur.execute(
+                """
+                SELECT c.id, c.vendor_id, c.file_name, c.status, c.uploaded_at,
+                       v.name AS vendor_name,
+                       COUNT(sr.id) AS rule_count
+                FROM contracts c
+                LEFT JOIN vendors v ON v.id = c.vendor_id
+                LEFT JOIN sla_rules sr ON sr.contract_id = c.id
+                WHERE c.vendor_id = %s
+                GROUP BY c.id, v.name
+                ORDER BY c.uploaded_at DESC
+                """,
+                (vendor_id,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT c.id, c.vendor_id, c.file_name, c.status, c.uploaded_at,
+                       v.name AS vendor_name,
+                       COUNT(sr.id) AS rule_count
+                FROM contracts c
+                LEFT JOIN vendors v ON v.id = c.vendor_id
+                LEFT JOIN sla_rules sr ON sr.contract_id = c.id
+                GROUP BY c.id, v.name
+                ORDER BY c.uploaded_at DESC
+                """
+            )
         cols = [d[0] for d in cur.description]
         rows = [_serialise(dict(zip(cols, row))) for row in cur.fetchall()]
     return rows

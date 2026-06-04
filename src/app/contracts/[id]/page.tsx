@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
-import { FileText, Building2, Calendar, Loader2, Clock, CheckCircle2 } from "lucide-react"
+import { FileText, Building2, Calendar, Loader2, Clock, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ContractRules } from "@/components/shared/ContractRules"
@@ -24,6 +24,8 @@ export default function ContractDetailPage() {
   const [contract, setContract] = useState<Contract | null>(null)
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [rules, setRules] = useState<SLARule[]>([])
+  const [extractedText, setExtractedText] = useState<string>("")
+  const [textExpanded, setTextExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -56,6 +58,7 @@ export default function ContractDetailPage() {
 
       setContract(fullContract)
       setRules(data.rules)
+      setExtractedText((raw.contract.extracted_text as string) ?? "")
       setLoading(false)
 
       // Fetch vendor name
@@ -191,6 +194,31 @@ export default function ContractDetailPage() {
             </p>
           </div>
         )
+      )}
+
+      {/* Full contract text — collapsible, shown once extracted */}
+      {extractedText && (contract.status === "extracted" || contract.status === "approved") && (
+        <div className="mt-6 rounded-xl border">
+          <button
+            onClick={() => setTextExpanded(v => !v)}
+            className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              Full Contract Text
+            </span>
+            {textExpanded
+              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </button>
+          {textExpanded && (
+            <div className="border-t px-5 py-4 max-h-[600px] overflow-y-auto">
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
+                {extractedText}
+              </pre>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

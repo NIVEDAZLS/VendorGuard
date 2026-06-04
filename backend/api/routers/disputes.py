@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from backend.agents.agent3 import draft_dispute_email
 from backend.db.connection import DBConn
 from backend.utils.email import send_email
+from backend.utils.email_helpers import vendor_email
 from backend.utils.secrets import get
 
 router = APIRouter()
@@ -110,7 +111,7 @@ def send_dispute_email(breach_id: str):
             raise HTTPException(404, "No draft found — generate a draft first")
         dispute_id, subject, body, vendor_id, contact_email, vendor_name = row
 
-    recipient = contact_email or get("FINANCE_MANAGER_EMAIL", "finance@yourcompany.com")
+    recipient = vendor_email(contact_email)
     send_email(to=recipient, subject=subject, body=body)
 
     with DBConn() as conn:
@@ -186,7 +187,7 @@ def send_magic_link(breach_id: str):
         f"Regards,\nVendorGuard Compliance Team"
     )
 
-    recipient = contact_email or get("FINANCE_MANAGER_EMAIL", "finance@yourcompany.com")
+    recipient = vendor_email(contact_email)
     send_email(
         to=recipient,
         subject=f"[VendorGuard] Exception window open — {metric_name} | Ref {order_id}",
@@ -202,23 +203,81 @@ def send_magic_link(breach_id: str):
     }
 
 
-@router.get("/")
-def list_disputes(status: str = "pending_review"):
+@router.get("/pre-breach-warnings")
+def list_pre_breach_warnings():
+    """
+    Return all exception tokens (used + active) with vendor response info.
+    Frontend splits into:
+      - Section A: used=False  → awaiting vendor response
+      - Section B: used=True   → vendor responded, action required
+    """
     with DBConn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT d.*, v.name AS vendor_name, v.contact_email,
-                   b.penalty_amount, sr.metric_name
-            FROM disputes d
-            LEFT JOIN vendors v ON v.id = d.vendor_id
-            LEFT JOIN breaches b ON b.id = d.breach_id
-            LEFT JOIN sla_rules sr ON sr.id = b.rule_id
-            WHERE d.status = %s
-            ORDER BY d.created_at DESC
-            """,
-            (status,),
+            SELECT et.id, et.log_id, et.vendor_id, et.used,
+                   et.expires_at, et.created_at AS sent_at,
+                   v.name  AS vendor_name,
+                   ol.event_type, ol.external_id, ol.started_at,
+                   sr.metric_name, sr.threshold_hours,
+                   er.id          AS exception_request_id,
+                   er.reason      AS vendor_reason,
+                   er.description AS vendor_description,
+                   er.submitted_at AS vendor_submitted_at,
+                   b.id           AS breach_id
+            FROM exception_tokens et
+            JOIN  vendors v   ON v.id  = et.vendor_id
+            JOIN  operational_logs ol ON ol.id = et.log_id
+            LEFT JOIN sla_rules sr
+                   ON sr.vendor_id = et.vendor_id
+                  AND sr.status IN ('approved', 'draft')
+            LEFT JOIN exception_requests er ON er.token_id = et.id
+            LEFT JOIN breaches b             ON b.log_id   = et.log_id
+            ORDER BY et.created_at DESC
+            """
         )
+        cols = [d[0] for d in cur.description]
+        rows = [_s(dict(zip(cols, r))) for r in cur.fetchall()]
+
+    # Deduplicate: a token may join multiple sla_rules rows; keep the best match
+    seen: dict[str, dict] = {}
+    for r in rows:
+        tid = r["id"]
+        if tid not in seen or (r["metric_name"] and not seen[tid]["metric_name"]):
+            seen[tid] = r
+    return list(seen.values())
+
+
+@router.get("/")
+def list_disputes(status: str = "pending_review"):
+    with DBConn() as conn:
+        cur = conn.cursor()
+        if status == "all":
+            cur.execute(
+                """
+                SELECT d.*, v.name AS vendor_name, v.contact_email,
+                       b.penalty_amount, sr.metric_name
+                FROM disputes d
+                LEFT JOIN vendors v ON v.id = d.vendor_id
+                LEFT JOIN breaches b ON b.id = d.breach_id
+                LEFT JOIN sla_rules sr ON sr.id = b.rule_id
+                ORDER BY d.created_at DESC
+                """
+            )
+        else:
+            cur.execute(
+                """
+                SELECT d.*, v.name AS vendor_name, v.contact_email,
+                       b.penalty_amount, sr.metric_name
+                FROM disputes d
+                LEFT JOIN vendors v ON v.id = d.vendor_id
+                LEFT JOIN breaches b ON b.id = d.breach_id
+                LEFT JOIN sla_rules sr ON sr.id = b.rule_id
+                WHERE d.status = %s
+                ORDER BY d.created_at DESC
+                """,
+                (status,),
+            )
         cols = [d[0] for d in cur.description]
         rows = [_s(dict(zip(cols, r))) for r in cur.fetchall()]
     return rows

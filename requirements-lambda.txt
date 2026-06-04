@@ -1,0 +1,20 @@
+# Lambda-only requirements — subset of requirements.txt
+# Excludes FastAPI, uvicorn, pdfplumber (not needed in Lambda jobs)
+
+# Database — installed separately in build_lambda.ps1 with --platform flag
+# psycopg2-binary is NOT listed here; build script handles it
+
+# AWS SDK (Secrets Manager + Bedrock)
+boto3>=1.34.0
+
+# Auth tokens (magic links)
+PyJWT>=2.8.0
+
+# Holiday calendar check
+requests>=2.31.0
+
+# Env loading (no-op in Lambda but keeps imports clean)
+python-dotenv>=1.0.1
+
+# Faker (used by seed scripts)
+Faker>=24.0.0
