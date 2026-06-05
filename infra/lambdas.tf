@@ -20,6 +20,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -260,6 +268,9 @@ resource "aws_cloudwatch_log_group" "pre_breach" {
 resource "aws_scheduler_schedule" "pre_breach" {
   name       = "vg-pre-breach-every-25min"
   group_name = "default"
+
+  # Set to ENABLED when ready to re-enable pre-breach emails
+  state = "DISABLED"
 
   flexible_time_window { mode = "OFF" }
   schedule_expression = "rate(25 minutes)"
