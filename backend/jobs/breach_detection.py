@@ -316,8 +316,8 @@ def _run_job(lookback_hours: int, limit: int):
             except Exception as e:
                 print(f"[breach_detection] Auto-draft failed for breach {breach_id[:8]}: {e}")
 
-    # Mark ~40% of 'sent' disputes older than 6 hours as 'paid'
-    # Simulates vendors settling penalties after receiving dispute emails
+    # Mark ~40% of 'sent' disputes older than 6 hours as paid
+    # disputes.payment_status = 'paid' + breaches.dispute_status = 'paid'
     paid_count = 0
     with DBConn() as conn:
         cur = conn.cursor()
@@ -325,6 +325,7 @@ def _run_job(lookback_hours: int, limit: int):
             """
             SELECT d.id, d.breach_id FROM disputes d
             WHERE d.status = 'sent'
+              AND d.payment_status = 'unpaid'
               AND d.sent_at < NOW() - INTERVAL '6 hours'
             ORDER BY d.sent_at ASC
             """
@@ -334,7 +335,7 @@ def _run_job(lookback_hours: int, limit: int):
         rng = _random.Random()
         for dispute_id, breach_id in sent_disputes:
             if rng.random() < 0.40:
-                cur.execute("UPDATE disputes SET status='paid' WHERE id=%s", (dispute_id,))
+                cur.execute("UPDATE disputes SET payment_status='paid' WHERE id=%s", (dispute_id,))
                 cur.execute("UPDATE breaches SET dispute_status='paid' WHERE id=%s", (breach_id,))
                 paid_count += 1
 
