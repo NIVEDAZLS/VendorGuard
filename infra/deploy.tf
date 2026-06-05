@@ -35,7 +35,7 @@ variable "github_repo" {
 
 variable "github_branch" {
   description = "Branch to auto-deploy"
-  default     = "main"
+  default     = "dev"
 }
 
 variable "github_token" {
