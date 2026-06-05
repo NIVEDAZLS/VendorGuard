@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
@@ -14,7 +15,6 @@ import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 
-const BASE = "http://localhost:8000/api"
 
 interface BreachDetail {
   id: string
@@ -63,7 +63,7 @@ const statusConfig: Record<string, { label: string; cls: string }> = {
   open:           { label: "Open",           cls: "bg-red-50 text-red-700 border-red-200" },
   pending_review: { label: "Pending Review", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   sent:           { label: "Claim Sent",     cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  paid:           { label: "Paid",           cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  paid:           { label: "Paid",           cls: "bg-[#dbeaff] text-[#1a00d9] border-[#5e9eff]" },
   disputed:       { label: "Disputed",       cls: "bg-red-50 text-red-700 border-red-200" },
   waived:         { label: "Waived",         cls: "bg-gray-50 text-gray-500 border-gray-200" },
 }
@@ -95,8 +95,25 @@ export default function BreachDetailPage() {
       fetch(`${BASE}/disputes/breach/${id}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ])
     setBreach(breachData)
-    setDispute(disputeData)
-    if (disputeData?.email_body) setEditedBody(disputeData.email_body)
+
+    if (disputeData) {
+      setDispute(disputeData)
+      if (disputeData.email_body) setEditedBody(disputeData.email_body)
+    } else {
+      // Fire auto-draft in background — page renders immediately, email section fills in async
+      setDraftLoading(true)
+      fetch(`${BASE}/disputes/breach/${id}/draft`, { method: "POST" })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setDispute({ ...data, status: "pending_review" } as DisputeDraft)
+            setEditedBody(data.email_body ?? "")
+          }
+        })
+        .catch(() => {})
+        .finally(() => setDraftLoading(false))
+    }
+
     setLoading(false)
   }, [id])
 
@@ -229,7 +246,7 @@ export default function BreachDetailPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">AI confidence</p>
-              <p className={`font-medium tabular-nums ${breach.confidence >= 90 ? "text-emerald-600" : "text-amber-600"}`}>{breach.confidence}%</p>
+              <p className={`font-medium tabular-nums ${breach.confidence >= 90 ? "text-[#1a00d9]" : "text-amber-600"}`}>{breach.confidence}%</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Started</p>
@@ -294,12 +311,10 @@ export default function BreachDetailPage() {
         <CardContent className="space-y-4">
           {!hasDraft ? (
             <div className="flex flex-col items-center py-6 text-center gap-3">
-              <Sparkles className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No email draft yet. Generate one using AI.</p>
-              <Button onClick={handleGenerateDraft} disabled={draftLoading} className="gap-2">
-                {draftLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {draftLoading ? "Drafting with AI…" : "Generate dispute email (AI)"}
-              </Button>
+              <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" />
+              <p className="text-sm text-muted-foreground">
+                {draftLoading ? "Drafting dispute email with AI…" : "Preparing draft…"}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -351,7 +366,7 @@ export default function BreachDetailPage() {
                     </Button>
                   )}
                   {dispute?.status === "sent" && (
-                    <div className="flex items-center gap-1.5 text-sm text-emerald-600">
+                    <div className="flex items-center gap-1.5 text-sm text-[#1a00d9]">
                       <CheckCircle className="h-4 w-4" /> Email sent {dispute.sent_at ? formatDate(dispute.sent_at) : ""}
                     </div>
                   )}

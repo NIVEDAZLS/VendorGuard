@@ -1,13 +1,10 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Bell, Moon, Sun } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { useDataStore } from "@/lib/store"
 import { useEffect, useState } from "react"
-import { DemoControlsSheet } from "@/components/shared/DemoControlsSheet"
 
 function useBreadcrumbs() {
   const pathname = usePathname()
@@ -39,7 +36,6 @@ export function TopBar() {
   const crumbs = useBreadcrumbs()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const atRiskCount = useDataStore((s) => s.atRiskItems.filter((a) => a.status === "pending").length)
 
   useEffect(() => setMounted(true), [])
 
@@ -69,27 +65,8 @@ export function TopBar() {
         )}
       </nav>
 
-      {/* Right side */}
+      {/* Right side — theme toggle only */}
       <div className="flex items-center gap-2">
-        <kbd className="hidden sm:inline-flex text-[10px] text-muted-foreground/50 font-mono mr-1 border rounded px-1.5 py-0.5">
-          ⌘K
-        </kbd>
-        <DemoControlsSheet />
-
-        {/* Notification bell */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-4 w-4" />
-          {atRiskCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] leading-none"
-            >
-              {atRiskCount}
-            </Badge>
-          )}
-        </Button>
-
-        {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon"

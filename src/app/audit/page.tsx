@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -15,7 +16,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 
-const BASE = "http://localhost:8000/api"
 
 interface AuditEntry {
   id: string

@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
@@ -36,7 +37,7 @@ export default function ContractsPage() {
 
   const loadData = useCallback(async () => {
     const [cs, vs] = await Promise.all([
-      fetch("http://localhost:8000/api/contracts/").then(r => r.json()).catch(() => []),
+      fetch(`${BASE}/contracts/`).then(r => r.json()).catch(() => []),
       VendorAPI.list().catch(() => []),
     ])
     setVendors(vs)

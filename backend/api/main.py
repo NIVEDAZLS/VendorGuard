@@ -25,9 +25,15 @@ log = logging.getLogger("vendorguard")
 
 app = FastAPI(title="VendorGuard API", version="1.0.0")
 
+import os as _os
+_ALLOWED_ORIGINS = [o.strip() for o in _os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:3000"
+).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

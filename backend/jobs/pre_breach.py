@@ -181,15 +181,15 @@ def _run_job():
             f"VendorGuard Compliance System"
         )
 
-        send_email(to=to_email, subject=subject, body=body)
+        # send_email(to=to_email, subject=subject, body=body)  # disabled: Gmail daily limit exceeded
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(
-            f"[{ts}] [pre_breach] WARNING sent → {vendor_name} | {metric_name} | "
+            f"[{ts}] [pre_breach] WARNING (not sent — email disabled) → {vendor_name} | {metric_name} | "
             f"{ratio*100:.0f}% elapsed | {minutes_remaining}min remaining | to={to_email}"
         )
         warned += 1
 
-    print(f"[pre_breach] Job complete — {warned} warning(s) sent from {len(logs)} in-progress logs.")
+    print(f"[pre_breach] Job complete — {warned} warning(s) logged (email disabled) from {len(logs)} in-progress logs.")
 
 
 if __name__ == "__main__":

@@ -1,17 +1,20 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ShieldAlert, Clock, Activity } from "lucide-react"
+import { ShieldAlert, Activity } from "lucide-react"
 import { format } from "date-fns"
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area,
+} from "recharts"
 
 import { PageHeader } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const BASE = "http://localhost:8000/api"
 
 interface VendorRow {
   vendor_id: string
@@ -111,8 +114,8 @@ function VendorScorecard({ rows }: { rows: VendorRow[] }) {
         </thead>
         <tbody>
           {rows.map(r => {
-            const barColor = r.status === "Healthy" ? "#10b981" : r.status === "At Risk" ? "#f59e0b" : "#ef4444"
-            const statusCls = r.status === "Healthy" ? "bg-emerald-50 text-emerald-700" : r.status === "At Risk" ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"
+            const barColor = r.status === "Healthy" ? "#1a00d9" : r.status === "At Risk" ? "#f59e0b" : "#ef4444"
+            const statusCls = r.status === "Healthy" ? "bg-[#dbeaff] text-[#1a00d9]" : r.status === "At Risk" ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"
             return (
               <tr key={r.vendor_id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="p-3 pl-4">
@@ -135,7 +138,7 @@ function VendorScorecard({ rows }: { rows: VendorRow[] }) {
                   {r.penalties_owed > 0 ? <span className="text-red-600">{formatINR(r.penalties_owed)}</span> : <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className="p-3 font-mono text-xs tabular-nums">
-                  {r.penalties_paid > 0 ? <span className="text-emerald-600">{formatINR(r.penalties_paid)}</span> : <span className="text-muted-foreground">—</span>}
+                  {r.penalties_paid > 0 ? <span className="text-[#1a00d9]">{formatINR(r.penalties_paid)}</span> : <span className="text-muted-foreground">—</span>}
                 </td>
                 <td className="p-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{r.status}</span>
@@ -216,11 +219,43 @@ function RecentBreachesTable({ breaches }: { breaches: RecentBreach[] }) {
   )
 }
 
+// ── Chart data helpers ────────────────────────────────────────────────────────
+function buildMetricChartData(breaches: RecentBreach[]) {
+  const counts: Record<string, number> = {}
+  for (const b of breaches) {
+    const key = (b.metric_name ?? b.order_id ?? "Unknown").replace(/_/g, " ")
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, count }))
+}
+
+function buildMonthTrendData(breaches: RecentBreach[]) {
+  const now = new Date()
+  const months: { label: string; key: string }[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    months.push({
+      label: d.toLocaleString("en-IN", { month: "short", year: "2-digit" }),
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+    })
+  }
+  const counts: Record<string, number> = {}
+  for (const b of breaches) {
+    const d = new Date(b.breached_at)
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    counts[k] = (counts[k] ?? 0) + 1
+  }
+  return months.map(m => ({ month: m.label, breaches: counts[m.key] ?? 0 }))
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [kpis, setKpis] = useState<Kpis | null>(null)
   const [scorecard, setScorecard] = useState<VendorRow[]>([])
-  const [recentBreaches, setRecentBreaches] = useState<RecentBreach[]>([])
+  const [allBreaches, setAllBreaches] = useState<RecentBreach[]>([])
   const [loading, setLoading] = useState(true)
   const now = new Date()
 
@@ -233,7 +268,7 @@ export default function DashboardPage() {
         setKpis(portfolio.kpis)
         setScorecard(portfolio.scorecard ?? [])
       }
-      setRecentBreaches((breaches as RecentBreach[]).slice(0, 5))
+      setAllBreaches((breaches as RecentBreach[]))
       setLoading(false)
     })
   }, [])
@@ -241,6 +276,9 @@ export default function DashboardPage() {
   const totalIdentified = kpis ? kpis.penalties_identified_mtd : 0
   const totalRecovered = kpis ? kpis.penalties_recovered_ytd : 0
   const recoveryRate = totalIdentified > 0 ? ((totalRecovered / totalIdentified) * 100).toFixed(1) : "0.0"
+
+  const metricChartData = buildMetricChartData(allBreaches)
+  const trendChartData = buildMonthTrendData(allBreaches)
 
   return (
     <div className="space-y-6 pb-8">
@@ -270,8 +308,8 @@ export default function DashboardPage() {
               value={totalRecovered}
               formattedValue={formatINR(totalRecovered)}
               sub={`${recoveryRate}% recovery rate`}
-              topBorderClass="border-t-emerald-500"
-              valueClass="text-emerald-600"
+              topBorderClass="border-t-[#1a00d9]"
+              valueClass="text-[#1a00d9]"
             />
             <KpiCard
               label="Active Breaches (30d)"
@@ -284,9 +322,111 @@ export default function DashboardPage() {
               label="Contracts Monitored"
               value={kpis?.contracts_monitored ?? 0}
               sub={`${scorecard.length} vendor${scorecard.length !== 1 ? "s" : ""} tracked`}
-              topBorderClass="border-t-blue-400"
-              valueClass="text-blue-600"
+              topBorderClass="border-t-[#5e9eff]"
+              valueClass="text-[#1a00d9]"
             />
+          </div>
+
+          {/* Analytics charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Chart A — Breach Distribution by SLA Metric */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Breach Distribution by SLA Metric</CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1">
+                {metricChartData.length === 0 ? (
+                  <div className="flex items-center justify-center h-[300px] text-muted-foreground text-sm">
+                    <ShieldAlert className="h-5 w-5 mr-2" /> No breach data yet
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={metricChartData}
+                      layout="vertical"
+                      margin={{ top: 4, right: 32, left: 8, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        allowDecimals={false}
+                        tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={160}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={(props) => {
+                          const { x, y, payload } = props
+                          const label: string = payload.value
+                          const maxChars = 20
+                          const display = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label
+                          return (
+                            <text x={x} y={y} dy={4} textAnchor="end" fontSize={10} fill="hsl(var(--muted-foreground))">
+                              {display}
+                            </text>
+                          )
+                        }}
+                      />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                        labelStyle={{ fontWeight: 600 }}
+                        formatter={(v) => [v, "Breaches"]}
+                      />
+                      <Bar dataKey="count" fill="#1a00d9" radius={[0, 4, 4, 0]} name="Breaches" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Chart B — Monthly Breach Trend */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Breach Trend — Last 6 Months</CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1">
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={trendChartData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#5e9eff" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#5e9eff" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                      allowDecimals={false}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                      labelStyle={{ fontWeight: 600 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="breaches"
+                      stroke="#1a00d9"
+                      strokeWidth={2}
+                      fill="url(#trendGradient)"
+                      name="Breaches"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Vendor Compliance Scorecard */}
@@ -299,30 +439,6 @@ export default function DashboardPage() {
             </div>
             <VendorScorecard rows={scorecard} />
           </div>
-
-          {/* Items needing attention */}
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="text-sm font-medium">Items needing attention</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="breaches">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="breaches" className="text-xs">Recent breaches</TabsTrigger>
-                  <TabsTrigger value="at-risk" className="text-xs">At-risk now</TabsTrigger>
-                </TabsList>
-                <TabsContent value="breaches">
-                  <RecentBreachesTable breaches={recentBreaches} />
-                </TabsContent>
-                <TabsContent value="at-risk">
-                  <div className="flex flex-col items-center py-12 text-center">
-                    <Clock className="h-8 w-8 text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">Pre-breach monitoring runs via the scheduled job</p>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
         </>
       )}
     </div>

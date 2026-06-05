@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
@@ -7,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
-const BASE = "http://localhost:8000/api"
 
 const EXCEPTION_REASONS = [
   "Force majeure / natural disaster",

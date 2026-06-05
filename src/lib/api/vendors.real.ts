@@ -1,7 +1,7 @@
+import { BASE } from "@/lib/api/base"
 import type { Vendor } from "@/lib/types"
 import type { VendorAPI } from "./vendors"
 
-const BASE = "http://localhost:8000/api"
 
 function toVendor(r: Record<string, unknown>): Vendor {
   return {

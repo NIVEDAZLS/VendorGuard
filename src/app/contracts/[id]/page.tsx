@@ -1,8 +1,9 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useParams } from "next/navigation"
-import { FileText, Building2, Calendar, Loader2, Clock, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
+import { FileText, Building2, Calendar, Loader2, Clock, CheckCircle2, ChevronDown, ChevronRight, ChevronLeft } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ContractRules } from "@/components/shared/ContractRules"
@@ -19,6 +20,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 
 export default function ContractDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const id = params.id as string
 
   const [contract, setContract] = useState<Contract | null>(null)
@@ -43,7 +45,7 @@ export default function ContractDetailPage() {
       }
 
       // getExtractionStatus returns the raw backend shape — pull full contract info
-      const raw = await fetch(`http://localhost:8000/api/contracts/${id}`).then(r => r.json()) as {
+      const raw = await fetch(`${BASE}/contracts/${id}`).then(r => r.json()) as {
         contract: Record<string, unknown>
         sla_rules: Record<string, unknown>[]
       }
@@ -127,6 +129,15 @@ export default function ContractDetailPage() {
 
   return (
     <div>
+      {/* Back navigation */}
+      <button
+        onClick={() => router.back()}
+        className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        Back
+      </button>
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-start justify-between gap-4">

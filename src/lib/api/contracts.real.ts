@@ -1,8 +1,8 @@
+import { BASE } from "@/lib/api/base"
 import type { Contract, SLARule } from "@/lib/types"
 import type { ContractAPI } from "./contracts"
 import type { ExtractionStatusResponse, UpdateRuleRequest } from "./types"
 
-const BASE = "http://localhost:8000/api"
 
 function toContract(r: Record<string, unknown>): Contract {
   return {

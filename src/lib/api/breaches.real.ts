@@ -1,7 +1,7 @@
+import { BASE } from "@/lib/api/base"
 import type { Breach } from "@/lib/types"
 import type { BreachAPI } from "./breaches"
 
-const BASE = "http://localhost:8000/api"
 
 function toBreach(r: Record<string, unknown>): Breach {
   return {

@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, useCallback } from "react"
 import { Database, Activity } from "lucide-react"
@@ -15,7 +16,6 @@ import {
 import { VendorAPI } from "@/lib/api"
 import type { Vendor } from "@/lib/types"
 
-const BASE = "http://localhost:8000/api"
 
 interface OpLog {
   id: string

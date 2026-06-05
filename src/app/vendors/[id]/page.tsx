@@ -1,4 +1,5 @@
 "use client"
+import { BASE } from "@/lib/api/base"
 
 import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
@@ -34,7 +35,6 @@ import { Separator } from "@/components/ui/separator"
 import { ContractAPI } from "@/lib/api"
 import { toast } from "sonner"
 
-const BASE = "http://localhost:8000/api"
 
 interface Vendor {
   id: string
@@ -131,7 +131,9 @@ export default function VendorDetailPage() {
         fetch(`${BASE}/audit/?vendor_id=${id}&days=90`),
       ])
 
-      if (cRes.ok) setContracts(await cRes.json())
+      // Parse cRes body once — can't consume it twice
+      const contractList: Contract[] = cRes.ok ? await cRes.json() : []
+      setContracts(contractList)
       if (bRes.ok) setBreaches(await bRes.json())
       if (aRes.ok) {
         const aData = await aRes.json()
@@ -139,8 +141,7 @@ export default function VendorDetailPage() {
       }
 
       // Collect SLA rules from all contracts
-      const contractData: Contract[] = cRes.ok ? await cRes.clone().json().catch(() => contracts) : []
-      if (contractData.length > 0) {
+      if (contractList.length > 0) {
         const rulesRes = await Promise.all(
           contractData.map((c) => fetch(`${BASE}/contracts/${c.id}`))
         )
@@ -380,7 +381,7 @@ export default function VendorDetailPage() {
       <Tabs defaultValue="contracts">
         <TabsList>
           <TabsTrigger value="contracts">Contracts ({contracts.length})</TabsTrigger>
-          <TabsTrigger value="rules">SLA rules ({slaRules.filter(r => r.status === "approved").length})</TabsTrigger>
+          <TabsTrigger value="rules">SLA rules ({slaRules.length})</TabsTrigger>
           <TabsTrigger value="breaches">Breaches ({breaches.length})</TabsTrigger>
           <TabsTrigger value="activity">Audit ({auditEntries.length})</TabsTrigger>
         </TabsList>
@@ -412,17 +413,15 @@ export default function VendorDetailPage() {
 
         {/* SLA Rules tab */}
         <TabsContent value="rules" className="mt-4 space-y-3">
-          {slaRules.filter((r) => r.status === "approved").length === 0 && (
-            <p className="text-sm text-muted-foreground py-8 text-center">No approved SLA rules yet</p>
+          {slaRules.length === 0 && (
+            <p className="text-sm text-muted-foreground py-8 text-center">No SLA rules found for this vendor</p>
           )}
-          {slaRules
-            .filter((r) => r.status === "approved")
-            .map((r) => (
+          {slaRules.map((r) => (
               <Card key={r.id}>
                 <CardContent className="flex items-center justify-between pt-6">
                   <div>
                     <div className="flex items-center gap-2">
-                      <BadgeCheck className="h-4 w-4 text-emerald-500" />
+                      <BadgeCheck className="h-4 w-4 text-[#1a00d9]" />
                       <span className="text-sm font-medium">{r.metric_name}</span>
                       {r.contract_section && (
                         <Badge variant="outline" className="text-[10px]">§{r.contract_section}</Badge>
@@ -433,7 +432,7 @@ export default function VendorDetailPage() {
                       {r.penalty_type && ` · Penalty: ${r.penalty_type} ${r.penalty_value ?? ""}`}
                     </p>
                   </div>
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-0">Active</Badge>
+                  <Badge variant="outline" className="bg-[#dbeaff] text-[#1a00d9] border-0">Active</Badge>
                 </CardContent>
               </Card>
             ))}

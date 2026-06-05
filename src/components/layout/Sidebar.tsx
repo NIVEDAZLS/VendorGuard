@@ -11,7 +11,6 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useState } from "react"
 
 const navItems = [
   { href: "/", label: "Portfolio Overview", icon: LayoutDashboard },
@@ -20,9 +19,13 @@ const navItems = [
   { href: "/audit", label: "Audit Records", icon: Activity },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  collapsed: boolean
+  setCollapsed: (v: boolean) => void
+}
+
+export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/"
@@ -44,7 +47,7 @@ export function Sidebar() {
           collapsed && "justify-center px-0"
         )}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white font-bold text-sm font-mono">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#1a00d9] text-white font-bold text-sm font-mono">
           VG
         </div>
         {!collapsed && (
@@ -69,10 +72,10 @@ export function Sidebar() {
                 href={item.href}
                 className={cn(
                   "relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  "hover:bg-emerald-50 hover:text-emerald-700",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+                  "hover:bg-[#dbeaff] hover:text-[#1a00d9]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a00d9]",
                   active
-                    ? "bg-emerald-50 text-emerald-700 border-l-2 border-emerald-500"
+                    ? "bg-[#dbeaff] text-[#1a00d9] border-l-2 border-[#1a00d9]"
                     : "text-muted-foreground border-l-2 border-transparent",
                   collapsed && "justify-center px-2"
                 )}
@@ -89,7 +92,7 @@ export function Sidebar() {
       {/* Footer */}
       {!collapsed && (
         <div className="border-t px-4 py-3 text-xs text-muted-foreground flex items-center gap-1.5">
-          <span className="vg-pulse-dot bg-emerald-500 shrink-0" />
+          <span className="vg-pulse-dot bg-[#fe6e06] shrink-0" />
           Monitoring active · 3 vendors
         </div>
       )}

@@ -1,7 +1,7 @@
+import { BASE } from "@/lib/api/base"
 import type { Claim } from "@/lib/types"
 import type { ClaimAPI } from "./claims"
 
-const BASE = "http://localhost:8000/api"
 
 function toClaim(r: Record<string, unknown>): Claim {
   return {
