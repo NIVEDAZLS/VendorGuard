@@ -9,6 +9,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.db.connection import DBConn
+from backend.utils.email import send_email
+from backend.utils.email_helpers import vendor_email
 
 router = APIRouter()
 
@@ -63,16 +65,60 @@ def list_breaches(
 
 @router.post("/{breach_id}/waive")
 def waive_breach(breach_id: str):
-    """Mark a breach as waived (finance team rejected the pre-breach exception)."""
+    """Mark a breach as waived and notify the vendor that their exception was accepted."""
     with DBConn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE breaches SET dispute_status='waived' WHERE id=%s RETURNING id",
+            """
+            SELECT b.id, b.penalty_amount, v.name AS vendor_name, v.contact_email,
+                   ol.external_id AS order_ref, sr.metric_name, sr.contract_section,
+                   er.reason, er.description
+            FROM breaches b
+            LEFT JOIN vendors v ON v.id = b.vendor_id
+            LEFT JOIN operational_logs ol ON ol.id = b.log_id
+            LEFT JOIN sla_rules sr ON sr.id = b.rule_id
+            LEFT JOIN exception_tokens et ON et.log_id = b.log_id AND et.used = TRUE
+            LEFT JOIN exception_requests er ON er.token_id = et.id
+            WHERE b.id = %s
+            ORDER BY er.submitted_at DESC
+            LIMIT 1
+            """,
             (breach_id,),
         )
-        if cur.rowcount == 0:
+        row = cur.fetchone()
+        if not row:
             raise HTTPException(404, "Breach not found")
-    return {"breach_id": breach_id, "dispute_status": "waived"}
+        (_, penalty_amount, vendor_name, contact_email,
+         order_ref, metric_name, contract_section, vendor_reason, vendor_desc) = row
+
+        cur.execute(
+            "UPDATE breaches SET dispute_status='waived' WHERE id=%s",
+            (breach_id,),
+        )
+
+    to_email = vendor_email(contact_email)
+    reason_line = f"\n\nYour submitted reason: {vendor_reason}" if vendor_reason else ""
+    if vendor_desc:
+        reason_line += f"\nDetails: {vendor_desc}"
+
+    subject = f"[VendorGuard] Exception Accepted — No Penalty | {metric_name or ''} | Ref {order_ref or ''}"
+    body = (
+        f"Dear {vendor_name or 'Vendor'} Operations Team,\n\n"
+        f"We have reviewed your exception submission for the following SLA event and have decided to waive the breach penalty.\n\n"
+        f"SLA Metric       : {metric_name or '—'}\n"
+        f"Order / Reference: {order_ref or '—'}\n"
+        f"Contract Section : {contract_section or '—'}\n"
+        f"Penalty Amount   : {'INR {:,.2f}'.format(float(penalty_amount)) if penalty_amount else '—'}"
+        f"{reason_line}\n\n"
+        f"Decision: EXCEPTION ACCEPTED — No penalty will be raised for this event.\n\n"
+        f"This decision has been recorded in VendorGuard. Please ensure continued compliance "
+        f"with your SLA obligations to avoid future breach notices.\n\n"
+        f"Regards,\nVendorGuard Compliance Team"
+    )
+
+    send_email(to=to_email, subject=subject, body=body)
+
+    return {"breach_id": breach_id, "dispute_status": "waived", "email_sent_to": to_email}
 
 
 @router.get("/{breach_id}")
