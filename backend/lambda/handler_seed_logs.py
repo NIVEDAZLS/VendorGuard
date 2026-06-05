@@ -182,16 +182,38 @@ def handler(event, context):
             if cur.rowcount:
                 inserted += 1
 
+    # Mark ~40% of 'sent' disputes older than 2 hours as 'paid'
+    # This simulates vendors settling penalties after receiving dispute emails
+    paid_count = 0
+    with DBConn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT d.id, d.breach_id
+            FROM disputes d
+            WHERE d.status = 'sent'
+              AND d.sent_at < NOW() - INTERVAL '2 hours'
+            ORDER BY d.sent_at ASC
+            """
+        )
+        sent_disputes = cur.fetchall()
+        to_pay = [r for i, r in enumerate(sent_disputes) if rng.random() < 0.40]
+        for dispute_id, breach_id in to_pay:
+            cur.execute("UPDATE disputes SET status='paid' WHERE id=%s", (dispute_id,))
+            cur.execute("UPDATE breaches SET dispute_status='paid' WHERE id=%s", (breach_id,))
+            paid_count += 1
+
     breached_est = int(len(completed_rows) * BREACH_RATE)
     print(
         f"[seed_logs] {inserted}/{len(all_rows)} logs inserted "
         f"({len(completed_rows)} completed ~{breached_est} breached, "
         f"{len(inprogress_rows)} in-progress) "
-        f"across {len(rules_by_vendor)} vendor(s)"
+        f"across {len(rules_by_vendor)} vendor(s) | {paid_count} dispute(s) marked paid"
     )
     return {
         "inserted":        inserted,
         "total_generated": len(all_rows),
         "completed":       len(completed_rows),
         "in_progress":     len(inprogress_rows),
+        "disputes_paid":   paid_count,
     }
