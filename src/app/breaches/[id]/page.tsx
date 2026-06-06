@@ -84,6 +84,7 @@ export default function BreachDetailPage() {
   const [dispute, setDispute] = useState<DisputeDraft | null>(null)
   const [loading, setLoading] = useState(true)
   const [draftLoading, setDraftLoading] = useState(false)
+  const [draftError, setDraftError] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
   const [editingBody, setEditingBody] = useState(false)
   const [editedBody, setEditedBody] = useState("")
@@ -102,15 +103,18 @@ export default function BreachDetailPage() {
     } else {
       // Fire auto-draft in background — page renders immediately, email section fills in async
       setDraftLoading(true)
+      setDraftError(false)
       fetch(`${BASE}/disputes/breach/${id}/draft`, { method: "POST" })
-        .then(r => r.ok ? r.json() : null)
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
         .then(data => {
           if (data) {
             setDispute({ ...data, status: "pending_review" } as DisputeDraft)
             setEditedBody(data.email_body ?? "")
+          } else {
+            setDraftError(true)
           }
         })
-        .catch(() => {})
+        .catch(() => setDraftError(true))
         .finally(() => setDraftLoading(false))
     }
 
@@ -121,6 +125,7 @@ export default function BreachDetailPage() {
 
   const handleGenerateDraft = async () => {
     setDraftLoading(true)
+    setDraftError(false)
     try {
       const r = await fetch(`${BASE}/disputes/breach/${id}/draft`, { method: "POST" })
       if (!r.ok) throw new Error(await r.text())
@@ -129,6 +134,7 @@ export default function BreachDetailPage() {
       setDispute({ ...data, status: "pending_review" } as DisputeDraft)
       setEditedBody(data.email_body ?? "")
     } catch (e) {
+      setDraftError(true)
       toast.error("Failed to generate draft: " + String(e))
     } finally {
       setDraftLoading(false)
@@ -311,10 +317,23 @@ export default function BreachDetailPage() {
         <CardContent className="space-y-4">
           {!hasDraft ? (
             <div className="flex flex-col items-center py-6 text-center gap-3">
-              <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" />
-              <p className="text-sm text-muted-foreground">
-                {draftLoading ? "Drafting dispute email with AI…" : "Preparing draft…"}
-              </p>
+              {draftError ? (
+                <>
+                  <AlertTriangle className="h-8 w-8 text-amber-500" />
+                  <p className="text-sm text-muted-foreground">Failed to generate draft — AI service may be unavailable.</p>
+                  <Button size="sm" variant="outline" onClick={handleGenerateDraft} disabled={draftLoading} className="gap-2">
+                    {draftLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    Retry
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" />
+                  <p className="text-sm text-muted-foreground">
+                    {draftLoading ? "Drafting dispute email with AI…" : "Preparing draft…"}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
