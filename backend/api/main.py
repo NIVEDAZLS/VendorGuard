@@ -28,7 +28,7 @@ app = FastAPI(title="VendorGuard API", version="1.0.0")
 import os as _os
 _ALLOWED_ORIGINS = [o.strip() for o in _os.environ.get(
     "CORS_ORIGINS",
-    "http://localhost:3000"
+    "http://localhost:3000,https://dev.d3t83ofq8dx3zk.amplifyapp.com"
 ).split(",") if o.strip()]
 
 app.add_middleware(
