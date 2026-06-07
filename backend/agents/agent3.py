@@ -34,21 +34,28 @@ def _get_client():
 
 SYSTEM_PROMPT = """You are a corporate compliance officer drafting a formal vendor dispute email for an Indian company.
 
-Write the email in EXACTLY six sections (no headers, just flowing paragraphs):
-1. Notice statement — formally notify the vendor of the SLA breach
-2. Contract reference — cite the exact contract clause number (use the one provided, never invent one)
-3. Facts — state the order/shipment ID, actual performance, SLA threshold, and delay
-4. Penalty calculation — show the calculation step by step using ONLY the numbers provided
-5. Payment instruction — request payment within 7 business days
-6. Professional close — firm, factual, not hostile
+If vendor_exception_reason is provided, the vendor filed an exception claim. You must address it directly and explain
+why it does not absolve them of the breach under the contract terms. Cite the specific exception_clauses from the
+contract that do NOT cover their stated reason.
+
+If vendor_exception_reason is NOT provided, draft a standard breach notice.
+
+Write the email in flowing paragraphs (no section headers), covering:
+1. Notice of SLA breach — formally notify the vendor
+2. Contract reference — cite the exact contract_section provided (never invent clause numbers)
+3. Facts — order ID, actual performance, SLA threshold, delay hours
+4. Exception assessment (ONLY if vendor_exception_reason is present) — acknowledge their reason, then clearly
+   explain why it does not qualify under the contract exception clauses
+5. Penalty calculation — use ONLY the penalty_amount provided, show the calculation
+6. Payment instruction — request payment within 7 business days
+7. Professional close — firm, factual, not hostile
 
 RULES:
 - Cite ONLY the contract_section value provided — never invent or guess clause numbers.
 - Use ONLY the penalty_amount from the breach record — never recalculate.
-- ALL monetary amounts MUST be in Indian Rupees. Always write amounts as ₹X,XX,XXX (Indian number format) — NEVER use $ or USD.
-- Return the email as plain text ONLY — no subject line in the body, no markdown formatting.
-- Do not include a subject line inside the email body.
-- Do NOT include any exception portal links or URLs in the email body.
+- ALL monetary amounts MUST be in Indian Rupees. Write as ₹X,XX,XXX (Indian number format) — NEVER use $ or USD.
+- Return plain text ONLY — no subject line in the body, no markdown, no headers.
+- Do NOT include any exception portal links or URLs.
 """
 
 
@@ -110,6 +117,28 @@ def draft_dispute_email(breach_id: str) -> str:
             if lrow:
                 log_row = dict(zip(lcols, lrow))
 
+        # Fetch vendor exception reason if filed (via exception_tokens linked to this log)
+        exception_submission = {}
+        if breach.get("log_id"):
+            cur.execute(
+                """
+                SELECT er.reason, er.description, er.submitted_at
+                FROM exception_requests er
+                JOIN exception_tokens et ON et.id = er.token_id
+                WHERE et.log_id = %s
+                ORDER BY er.submitted_at DESC
+                LIMIT 1
+                """,
+                (breach["log_id"],),
+            )
+            erow = cur.fetchone()
+            if erow:
+                exception_submission = {
+                    "reason": erow[0],
+                    "description": erow[1],
+                    "submitted_at": str(erow[2]),
+                }
+
     sla_json_rules = []
     try:
         raw_json = get_json(f"sla-json/{breach['vendor_id']}_slas.json")
@@ -124,23 +153,27 @@ def draft_dispute_email(breach_id: str) -> str:
     )
 
     context = {
-        "breach_id":            breach_id,
-        "vendor_name":          vendor.get("name", "Vendor"),
-        "vendor_contact_email": vendor.get("contact_email", ""),
-        "contract_id":          rule.get("contract_id", ""),
-        "contract_section":     rule.get("contract_section", "N/A"),
-        "metric_name":          rule.get("metric_name", ""),
-        "threshold_hours":      rule.get("threshold_hours"),
-        "threshold_unit":       rule.get("threshold_unit", "hours"),
-        "actual_hours":         breach.get("actual_hours"),
-        "delay_hours":          breach.get("delay_hours"),
-        "penalty_amount":       breach.get("penalty_amount", 0),
-        "penalty_type":         rule.get("penalty_type"),
-        "penalty_value":        rule.get("penalty_value"),
-        "penalty_cap":          rule.get("penalty_cap"),
-        "order_id":             log_row.get("external_id", "N/A"),
-        "breach_date":          str(breach.get("breached_at", "")),
-        "exact_clause_text":    matching_clause.get("exception_clauses") if matching_clause else [],
+        "breach_id":                breach_id,
+        "vendor_name":              vendor.get("name", "Vendor"),
+        "vendor_contact_email":     vendor.get("contact_email", ""),
+        "contract_id":              rule.get("contract_id", ""),
+        "contract_section":         rule.get("contract_section", "N/A"),
+        "metric_name":              rule.get("metric_name", ""),
+        "threshold_hours":          rule.get("threshold_hours"),
+        "threshold_unit":           rule.get("threshold_unit", "hours"),
+        "actual_hours":             breach.get("actual_hours"),
+        "delay_hours":              breach.get("delay_hours"),
+        "penalty_amount":           breach.get("penalty_amount", 0),
+        "penalty_type":             rule.get("penalty_type"),
+        "penalty_value":            rule.get("penalty_value"),
+        "penalty_cap":              rule.get("penalty_cap"),
+        "order_id":                 log_row.get("external_id", "N/A"),
+        "breach_date":              str(breach.get("breached_at", "")),
+        "exception_clauses":        matching_clause.get("exception_clauses") if matching_clause else [],
+        # Vendor exception — present only if vendor responded to pre-breach warning
+        "vendor_exception_reason":  exception_submission.get("reason", ""),
+        "vendor_exception_details": exception_submission.get("description", ""),
+        "vendor_exception_filed_at":exception_submission.get("submitted_at", ""),
     }
 
     email_body = _call_llm(context)
