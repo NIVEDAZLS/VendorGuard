@@ -77,6 +77,7 @@ interface PreBreachWarning {
   vendor_description: string | null
   vendor_submitted_at: string | null
   breach_id: string | null
+  token_jwt: string | null
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -255,10 +256,11 @@ export default function BreachesPage() {
     }
   }
 
-  const copyMagicLink = () => {
+  const copyMagicLink = (w: PreBreachWarning) => {
     const base = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-    navigator.clipboard.writeText(`${base}/exception?token=<jwt-in-sent-email>`)
-    toast.info("Magic link pattern copied.")
+    const url = w.token_jwt ? `${base}/exception?token=${w.token_jwt}` : `${base}/exception?token=<not-available>`
+    navigator.clipboard.writeText(url)
+    toast.success("Magic link copied to clipboard.")
   }
 
   const handleWaive = async (breachId: string | null, tokenId: string) => {
@@ -644,7 +646,7 @@ export default function BreachesPage() {
                                 </td>
                                 <td className="p-3" onClick={e => e.stopPropagation()}>
                                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1 px-2"
-                                    onClick={() => copyMagicLink()}>
+                                    onClick={() => copyMagicLink(w)}>
                                     <Link2 className="h-3 w-3" /> Copy Link
                                   </Button>
                                 </td>

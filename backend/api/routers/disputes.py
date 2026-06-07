@@ -59,18 +59,28 @@ def get_dispute_for_breach(breach_id: str):
 @router.post("/breach/{breach_id}/draft")
 def draft_dispute(breach_id: str):
     """Call Agent 3 to draft a dispute email for this breach."""
-    body = draft_dispute_email(breach_id)
-    # Fetch the newly created dispute
+    draft_dispute_email(breach_id)
+    # Return full dispute record so frontend can display it immediately
     with DBConn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, email_subject, email_body FROM disputes WHERE breach_id=%s ORDER BY created_at DESC LIMIT 1",
+            """
+            SELECT d.*, v.name AS vendor_name, v.contact_email,
+                   b.penalty_amount, b.delay_hours, sr.metric_name
+            FROM disputes d
+            LEFT JOIN vendors v ON v.id = d.vendor_id
+            LEFT JOIN breaches b ON b.id = d.breach_id
+            LEFT JOIN sla_rules sr ON sr.id = b.rule_id
+            WHERE d.breach_id = %s
+            ORDER BY d.created_at DESC LIMIT 1
+            """,
             (breach_id,),
         )
+        cols = [d[0] for d in cur.description]
         row = cur.fetchone()
-    if row:
-        return {"status": "draft_created", "dispute_id": row[0], "email_subject": row[1], "email_body": row[2]}
-    return {"status": "draft_created", "email_body": body}
+    if not row:
+        raise HTTPException(500, "Draft was not saved")
+    return _s(dict(zip(cols, row)))
 
 
 @router.put("/breach/{breach_id}/email-body")
@@ -216,7 +226,7 @@ def list_pre_breach_warnings():
         cur.execute(
             """
             SELECT et.id, et.log_id, et.vendor_id, et.used,
-                   et.expires_at, et.created_at AS sent_at,
+                   et.expires_at, et.created_at AS sent_at, et.token_jwt,
                    v.name  AS vendor_name,
                    ol.event_type, ol.external_id, ol.started_at,
                    sr.metric_name, sr.threshold_hours,
