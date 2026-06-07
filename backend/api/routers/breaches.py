@@ -2,10 +2,12 @@
 Breaches router.
 """
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
+import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.db.connection import DBConn
@@ -119,6 +121,99 @@ def waive_breach(breach_id: str):
     send_email(to=to_email, subject=subject, body=body)
 
     return {"breach_id": breach_id, "dispute_status": "waived", "email_sent_to": to_email}
+
+
+@router.post("/from-log/{log_id}")
+def create_breach_from_log(log_id: str):
+    """
+    Create a breach record on demand for a specific log_id.
+    Used when a vendor has responded to a pre-breach warning but breach detection
+    hasn't run yet (log had completed_at=NULL at detection time).
+    Marks the log completed NOW, runs rule matching, inserts breach.
+    Returns the breach_id.
+    """
+    with DBConn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Check if breach already exists for this log
+        cur.execute("SELECT id FROM breaches WHERE log_id = %s LIMIT 1", (log_id,))
+        existing = cur.fetchone()
+        if existing:
+            return {"breach_id": existing["id"], "created": False}
+
+        # Fetch the log
+        cur.execute("SELECT * FROM operational_logs WHERE id = %s", (log_id,))
+        log = cur.fetchone()
+        if not log:
+            raise HTTPException(404, "Log not found")
+        log = dict(log)
+
+        # Mark completed_at = NOW() if still null
+        if not log.get("completed_at"):
+            cur.execute(
+                "UPDATE operational_logs SET completed_at = NOW() WHERE id = %s",
+                (log_id,),
+            )
+            log["completed_at"] = datetime.now(timezone.utc)
+
+        # Fetch SLA rules for this vendor
+        cur.execute(
+            """SELECT * FROM sla_rules
+               WHERE vendor_id = %s AND threshold_hours IS NOT NULL
+                 AND threshold_unit IN ('hours','minutes','days_hours')
+                 AND status IN ('approved','draft')""",
+            (log["vendor_id"],),
+        )
+        rules = [dict(r) for r in cur.fetchall()]
+
+    if not rules:
+        raise HTTPException(422, "No SLA rules found for this vendor")
+
+    # Match rule using same logic as breach_detection
+    from backend.jobs.breach_detection import _match_rule, _calc_penalty
+    rule = _match_rule(log["event_type"], rules)
+    if not rule:
+        raise HTTPException(422, f"No matching SLA rule for event_type '{log['event_type']}'")
+
+    started = log["started_at"]
+    completed = log["completed_at"]
+    if hasattr(started, "tzinfo") and started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if hasattr(completed, "tzinfo") and completed.tzinfo is None:
+        completed = completed.replace(tzinfo=timezone.utc)
+
+    threshold = float(rule.get("threshold_hours", 0))
+    actual_hours = (completed - started).total_seconds() / 3600
+    delay_hours = max(0.0, actual_hours - threshold)
+    penalty = _calc_penalty(rule, delay_hours)
+    breach_id = str(uuid.uuid4())
+
+    with DBConn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO breaches
+                (id, log_id, rule_id, vendor_id, actual_hours, delay_hours,
+                 penalty_amount, dispute_status, confidence, reasoning, breached_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'open',85,%s,NOW())
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                breach_id, log_id, rule["id"], log["vendor_id"],
+                round(actual_hours, 2), round(delay_hours, 2), penalty,
+                f"On-demand breach created: vendor responded to pre-breach warning. "
+                f"Log completed at {completed}. Delay: {delay_hours:.1f}h against {threshold}h SLA.",
+            ),
+        )
+        # Also insert audit log
+        cur.execute(
+            """INSERT INTO audit_log (id, vendor_id, breach_id, status, confidence, reasoning)
+               VALUES (%s,%s,%s,'confirmed',85,%s)""",
+            (str(uuid.uuid4()), log["vendor_id"], breach_id,
+             "On-demand breach from vendor exception response"),
+        )
+
+    return {"breach_id": breach_id, "created": True, "penalty_amount": penalty}
 
 
 @router.get("/{breach_id}")

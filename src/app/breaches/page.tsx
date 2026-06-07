@@ -212,11 +212,20 @@ export default function BreachesPage() {
     finally { setActionLoading(null) }
   }
 
-  const handleGenerateDispute = async (breachId: string | null, tokenId: string) => {
-    if (!breachId) { toast.error("No breach record found — run breach detection first."); return }
+  const ensureBreachExists = async (breachId: string | null, logId: string): Promise<string | null> => {
+    if (breachId) return breachId
+    const res = await fetch(`${BASE}/breaches/from-log/${logId}`, { method: "POST" })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.breach_id ?? null
+  }
+
+  const handleGenerateDispute = async (breachId: string | null, logId: string, tokenId: string) => {
     setActionLoading(tokenId)
     try {
-      const res = await fetch(`${BASE}/disputes/breach/${breachId}/draft`, { method: "POST" })
+      const resolvedId = await ensureBreachExists(breachId, logId)
+      if (!resolvedId) { toast.error("Could not create breach record."); return }
+      const res = await fetch(`${BASE}/disputes/breach/${resolvedId}/draft`, { method: "POST" })
       if (!res.ok) throw new Error()
       toast.success("Dispute draft generated. Check the Dispute Emails tab.")
       loadData()
@@ -256,11 +265,12 @@ export default function BreachesPage() {
     }
   }
 
-  const handleWaive = async (breachId: string | null, tokenId: string) => {
-    if (!breachId) { toast.error("No breach record found — cannot waive."); return }
+  const handleWaive = async (breachId: string | null, logId: string, tokenId: string) => {
     setActionLoading(tokenId)
     try {
-      const res = await fetch(`${BASE}/breaches/${breachId}/waive`, { method: "POST" })
+      const resolvedId = await ensureBreachExists(breachId, logId)
+      if (!resolvedId) { toast.error("Could not create breach record."); return }
+      const res = await fetch(`${BASE}/breaches/${resolvedId}/waive`, { method: "POST" })
       if (!res.ok) throw new Error()
       toast.success("Breach waived.")
       loadData()
@@ -696,13 +706,13 @@ export default function BreachesPage() {
                         <div className="flex items-center gap-2">
                           <Button size="sm" className="h-7 text-xs gap-1.5 bg-[#1a00d9] hover:bg-[#1a00d9]/90 text-white"
                             disabled={actionLoading === w.id}
-                            onClick={() => handleGenerateDispute(w.breach_id, w.id)}>
+                            onClick={() => handleGenerateDispute(w.breach_id, w.log_id, w.id)}>
                             <Mail className="h-3.5 w-3.5" /> Generate Dispute
                           </Button>
                           <Button size="sm" variant="outline"
                             className="h-7 text-xs gap-1.5 text-red-600 border-red-200"
                             disabled={actionLoading === w.id}
-                            onClick={() => handleWaive(w.breach_id, w.id)}>
+                            onClick={() => handleWaive(w.breach_id, w.log_id, w.id)}>
                             <XCircle className="h-3.5 w-3.5" /> Waive
                           </Button>
                           {w.breach_id && (
