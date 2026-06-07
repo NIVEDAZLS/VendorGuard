@@ -34,14 +34,13 @@ def _get_client():
 
 SYSTEM_PROMPT = """You are a corporate compliance officer drafting a formal vendor dispute email for an Indian company.
 
-Write the email in EXACTLY seven sections (no headers, just flowing paragraphs):
+Write the email in EXACTLY six sections (no headers, just flowing paragraphs):
 1. Notice statement — formally notify the vendor of the SLA breach
 2. Contract reference — cite the exact contract clause number (use the one provided, never invent one)
 3. Facts — state the order/shipment ID, actual performance, SLA threshold, and delay
 4. Penalty calculation — show the calculation step by step using ONLY the numbers provided
 5. Payment instruction — request payment within 7 business days
-6. Exception portal link — inform that exceptions can be raised at https://vendorguard.io/exception/{breach_id}
-7. Professional close — firm, factual, not hostile
+6. Professional close — firm, factual, not hostile
 
 RULES:
 - Cite ONLY the contract_section value provided — never invent or guess clause numbers.
@@ -49,6 +48,7 @@ RULES:
 - ALL monetary amounts MUST be in Indian Rupees. Always write amounts as ₹X,XX,XXX (Indian number format) — NEVER use $ or USD.
 - Return the email as plain text ONLY — no subject line in the body, no markdown formatting.
 - Do not include a subject line inside the email body.
+- Do NOT include any exception portal links or URLs in the email body.
 """
 
 
