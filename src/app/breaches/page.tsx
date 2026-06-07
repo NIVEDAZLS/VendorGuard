@@ -9,7 +9,6 @@ import {
   ChevronDown, ChevronRight, MoreHorizontal,
 } from "lucide-react"
 import { PageHeader } from "@/components/layout"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -604,7 +603,6 @@ export default function BreachesPage() {
                           <th className="text-left font-medium p-3 text-xs text-muted-foreground uppercase tracking-wide">Time Remaining</th>
                           <th className="text-left font-medium p-3 text-xs text-muted-foreground uppercase tracking-wide">Warning Sent</th>
                           <th className="text-left font-medium p-3 text-xs text-muted-foreground uppercase tracking-wide">Status</th>
-                          <th className="text-left font-medium p-3 text-xs text-muted-foreground uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -650,7 +648,7 @@ export default function BreachesPage() {
                               </tr>
                               {isExpanded && (
                                 <tr key={`${w.id}-expand`} className="border-b bg-muted/20">
-                                  <td colSpan={9} className="px-6 py-4">
+                                  <td colSpan={8} className="px-6 py-4">
                                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1 mb-2">
                                       <Mail className="h-3 w-3" /> Warning Email Sent to Vendor
                                     </p>
