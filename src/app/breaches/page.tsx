@@ -6,7 +6,7 @@ import Link from "next/link"
 import {
   AlertTriangle, Eye, Activity, Mail, Clock,
   CheckCircle, XCircle, Pencil, ShieldAlert, ShieldCheck, ShieldOff,
-  Link2, ChevronDown, ChevronRight, MoreHorizontal,
+  ChevronDown, ChevronRight, MoreHorizontal,
 } from "lucide-react"
 import { PageHeader } from "@/components/layout"
 import { Card, CardContent } from "@/components/ui/card"
@@ -254,13 +254,6 @@ export default function BreachesPage() {
       ].join("\n")
       setWarningEmails(prev => ({ ...prev, [w.id]: body }))
     }
-  }
-
-  const copyMagicLink = (w: PreBreachWarning) => {
-    const base = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-    const url = w.token_jwt ? `${base}/exception?token=${w.token_jwt}` : `${base}/exception?token=<not-available>`
-    navigator.clipboard.writeText(url)
-    toast.success("Magic link copied to clipboard.")
   }
 
   const handleWaive = async (breachId: string | null, tokenId: string) => {
@@ -643,12 +636,6 @@ export default function BreachesPage() {
                                   }`}>
                                     {isExpired ? "Expired" : "Awaiting"}
                                   </span>
-                                </td>
-                                <td className="p-3" onClick={e => e.stopPropagation()}>
-                                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1 px-2"
-                                    onClick={() => copyMagicLink(w)}>
-                                    <Link2 className="h-3 w-3" /> Copy Link
-                                  </Button>
                                 </td>
                               </tr>
                               {isExpanded && (
