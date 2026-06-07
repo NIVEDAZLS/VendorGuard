@@ -162,19 +162,8 @@ def draft_dispute_email(breach_id: str) -> str:
         )
     print(f"[Agent3] Dispute draft saved — dispute_id={dispute_id}")
 
-    try:
-        notify_email = vendor_email(vendor.get("contact_email"))
-        send_email(
-            to=notify_email,
-            subject=f"[VendorGuard] Dispute draft ready for review — {subject}",
-            body=(
-                f"A dispute email draft has been generated for your review.\n\n"
-                f"Breach ID: {breach_id}\nVendor: {context['vendor_name']}\n\n"
-                f"Draft:\n\n{email_body}"
-            ),
-        )
-    except Exception as e:
-        print(f"[Agent3] Notification email failed (non-fatal): {e}")
+    # Draft is saved to DB — admin reviews and sends from the app.
+    # No email sent here to avoid vendor receiving draft before admin approves.
 
     return email_body
 

@@ -116,16 +116,17 @@ def _run_job():
         elapsed_hours = (now - started_at).total_seconds() / 3600
         ratio = elapsed_hours / threshold_hours
 
-        if ratio < WARNING_RATIO:
+        # Only warn in the 80–100% window — skip if not yet close or already breached
+        if ratio < WARNING_RATIO or ratio >= 1.0:
             continue
 
         log_id = log["id"]
 
-        # Skip if warning already sent for this log and token is still unused
+        # Skip if a warning was ever sent for this log (used, expired, or pending)
         with DBConn() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT id FROM exception_tokens WHERE log_id = %s AND used = FALSE",
+                "SELECT id FROM exception_tokens WHERE log_id = %s",
                 (log_id,),
             )
             if cur.fetchone():
