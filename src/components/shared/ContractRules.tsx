@@ -90,9 +90,14 @@ export function ContractRules({ rules: initialRules, contractId: _contractId, on
     }
   }
 
-  const handleDiscard = (ruleId: string) => {
-    setRules(prev => prev.filter(r => r.id !== ruleId))
-    toast("Rule removed")
+  const handleDiscard = async (ruleId: string) => {
+    try {
+      await ContractAPI.rejectRule(ruleId)
+      setRules(prev => prev.filter(r => r.id !== ruleId))
+      toast("Rule rejected and removed permanently")
+    } catch {
+      toast.error("Failed to reject rule")
+    }
   }
 
   const handleApproveAll = async () => {
@@ -100,13 +105,20 @@ export function ContractRules({ rules: initialRules, contractId: _contractId, on
       await ContractAPI.approveRule(r.id)
     }
     setRules(prev => prev.map(r => ({ ...r, status: "approved" as const })))
-    toast.success("All rules approved")
+    toast.success("All rules approved — breach detection will run against these rules")
     onAllApproved()
   }
 
-  const handleRejectAll = () => {
-    setRules([])
-    toast("All rules removed")
+  const handleRejectAll = async () => {
+    try {
+      for (const r of rules.filter(r => r.status === "draft")) {
+        await ContractAPI.rejectRule(r.id)
+      }
+      setRules(prev => prev.filter(r => r.status === "approved"))
+      toast("All draft rules rejected permanently")
+    } catch {
+      toast.error("Failed to reject all rules")
+    }
   }
 
   const startEdit = (rule: SLARule) => {

@@ -122,4 +122,9 @@ export const realContractAPI: ContractAPI = {
     if (!res.ok) throw new Error(`ContractAPI.approveRule failed: ${res.status}`)
     return { id: ruleId, status: "approved" } as SLARule
   },
+
+  async rejectRule(ruleId) {
+    const res = await fetch(`${BASE}/contracts/rules/${ruleId}`, { method: "DELETE" })
+    if (!res.ok) throw new Error(`ContractAPI.rejectRule failed: ${res.status}`)
+  },
 }

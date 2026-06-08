@@ -211,6 +211,17 @@ def approve_rule(rule_id: str):
     return {"id": rule_id, "status": "approved"}
 
 
+@router.delete("/rules/{rule_id}")
+def reject_rule(rule_id: str):
+    """Permanently reject (delete) an SLA rule extracted from a contract."""
+    with DBConn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sla_rules WHERE id=%s RETURNING id", (rule_id,))
+        if not cur.fetchone():
+            raise HTTPException(404, "Rule not found")
+    return {"id": rule_id, "deleted": True}
+
+
 @router.put("/rules/{rule_id}")
 def update_rule(rule_id: str, payload: dict):
     threshold = payload.get("threshold", {})

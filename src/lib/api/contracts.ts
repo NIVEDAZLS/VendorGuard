@@ -9,6 +9,7 @@ export interface ContractAPI {
   getRules(contractId: string): Promise<SLARule[]>
   updateRule(req: UpdateRuleRequest): Promise<SLARule>
   approveRule(ruleId: string): Promise<SLARule>
+  rejectRule(ruleId: string): Promise<void>
 }
 
 export const mockContractAPI: ContractAPI = {
@@ -70,5 +71,10 @@ export const mockContractAPI: ContractAPI = {
     const store = useDataStore.getState()
     store.approveRule(ruleId)
     return useDataStore.getState().slaRules.find((r) => r.id === ruleId)!
+  },
+
+  async rejectRule(ruleId) {
+    console.log("[MOCK API] ContractAPI.rejectRule", { ruleId })
+    await delay(300)
   },
 }
