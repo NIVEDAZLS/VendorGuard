@@ -32,7 +32,7 @@ LOCK_FILE = Path("/tmp/pre_breach.lock")
 JWT_SECRET = get("JWT_SECRET", "vendorguard-local-secret")
 WARNING_RATIO = 0.80   # fire when 80% of SLA window has elapsed
 TOKEN_EXPIRY_HOURS = 24
-MAX_EMAILS_PER_RUN = 15  # cap per Lambda invocation to stay within Gmail daily limit
+MAX_EMAILS_PER_RUN = 3   # cap per Lambda invocation — 3 × ~58 runs/day = ~174 emails/day, well under 500 limit
 
 
 def _check_lock():
@@ -94,7 +94,20 @@ def _run_job():
     for r in all_rules:
         rules_by_vendor.setdefault(r["vendor_id"], []).append(r)
 
-    print(f"[pre_breach] {len(logs)} in-progress logs | {len(all_rules)} SLA rules | cap={MAX_EMAILS_PER_RUN}")
+    # Hard daily limit — count tokens created today across all runs
+    with DBConn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM exception_tokens WHERE created_at >= CURRENT_DATE"
+        )
+        sent_today = cur.fetchone()[0]
+
+    DAILY_LIMIT = 450
+    if sent_today >= DAILY_LIMIT:
+        print(f"[pre_breach] Daily email limit reached ({sent_today}/{DAILY_LIMIT}) — skipping run.")
+        return
+
+    print(f"[pre_breach] {len(logs)} in-progress logs | {len(all_rules)} SLA rules | cap={MAX_EMAILS_PER_RUN} | sent_today={sent_today}/{DAILY_LIMIT}")
 
     warned = 0
     warned_vendors: set[str] = set()  # one email per vendor per run
