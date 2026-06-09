@@ -32,6 +32,7 @@ LOCK_FILE = Path("/tmp/pre_breach.lock")
 JWT_SECRET = get("JWT_SECRET", "vendorguard-local-secret")
 WARNING_RATIO = 0.80   # fire when 80% of SLA window has elapsed
 TOKEN_EXPIRY_HOURS = 24
+MAX_EMAILS_PER_RUN = 15  # cap per Lambda invocation to stay within Gmail daily limit
 
 
 def _check_lock():
@@ -71,7 +72,8 @@ def _run_job():
             FROM operational_logs ol
             JOIN vendors v ON v.id = ol.vendor_id
             WHERE ol.completed_at IS NULL
-            ORDER BY ol.started_at
+              AND ol.started_at >= NOW() - INTERVAL '1 hour'
+            ORDER BY ol.started_at DESC
             """
         )
         logs = [dict(r) for r in cur.fetchall()]
@@ -92,11 +94,14 @@ def _run_job():
     for r in all_rules:
         rules_by_vendor.setdefault(r["vendor_id"], []).append(r)
 
-    print(f"[pre_breach] {len(logs)} in-progress logs | {len(all_rules)} SLA rules")
+    print(f"[pre_breach] {len(logs)} in-progress logs | {len(all_rules)} SLA rules | cap={MAX_EMAILS_PER_RUN}")
 
     warned = 0
 
     for log in logs:
+        if warned >= MAX_EMAILS_PER_RUN:
+            print(f"[pre_breach] Email cap ({MAX_EMAILS_PER_RUN}) reached — stopping.")
+            break
         vendor_id = log["vendor_id"]
         event_type = log["event_type"]
 
@@ -182,15 +187,15 @@ def _run_job():
             f"VendorGuard Compliance System"
         )
 
-        # send_email(to=to_email, subject=subject, body=body)  # disabled: Gmail daily limit exceeded
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(
-            f"[{ts}] [pre_breach] WARNING (not sent — email disabled) → {vendor_name} | {metric_name} | "
-            f"{ratio*100:.0f}% elapsed | {minutes_remaining}min remaining | to={to_email}"
-        )
+        try:
+            send_email(to=to_email, subject=subject, body=body)
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{ts}] [pre_breach] SENT → {vendor_name} | {metric_name} | {ratio*100:.0f}% elapsed | {minutes_remaining}min remaining | to={to_email}")
+        except Exception as e:
+            print(f"[pre_breach] Email failed (non-fatal): {e}")
         warned += 1
 
-    print(f"[pre_breach] Job complete — {warned} warning(s) logged (email disabled) from {len(logs)} in-progress logs.")
+    print(f"[pre_breach] Job complete — {warned}/{MAX_EMAILS_PER_RUN} warning(s) sent from {len(logs)} in-progress logs.")
 
 
 if __name__ == "__main__":
