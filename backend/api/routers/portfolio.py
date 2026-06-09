@@ -45,6 +45,8 @@ def get_portfolio():
                 COALESCE((SELECT SUM(b.penalty_amount) FROM breaches b WHERE b.vendor_id = v.id AND b.dispute_status = 'paid'), 0) AS penalties_paid
             FROM vendors v
             LEFT JOIN contracts c ON c.vendor_id = v.id AND c.status = 'approved'
+            WHERE c.id IS NOT NULL
+               OR EXISTS (SELECT 1 FROM breaches b WHERE b.vendor_id = v.id)
             ORDER BY v.name
             """,
             (thirty_days_ago,),
