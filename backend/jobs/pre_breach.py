@@ -97,12 +97,17 @@ def _run_job():
     print(f"[pre_breach] {len(logs)} in-progress logs | {len(all_rules)} SLA rules | cap={MAX_EMAILS_PER_RUN}")
 
     warned = 0
+    warned_vendors: set[str] = set()  # one email per vendor per run
 
     for log in logs:
         if warned >= MAX_EMAILS_PER_RUN:
             print(f"[pre_breach] Email cap ({MAX_EMAILS_PER_RUN}) reached — stopping.")
             break
         vendor_id = log["vendor_id"]
+
+        # One warning email per vendor per run — avoid flooding same vendor
+        if vendor_id in warned_vendors:
+            continue
         event_type = log["event_type"]
 
         # Match log to SLA rule using EVENT_TYPE_MAP (same as breach_detection)
@@ -194,6 +199,7 @@ def _run_job():
         except Exception as e:
             print(f"[pre_breach] Email failed (non-fatal): {e}")
         warned += 1
+        warned_vendors.add(vendor_id)
 
     print(f"[pre_breach] Job complete — {warned}/{MAX_EMAILS_PER_RUN} warning(s) sent from {len(logs)} in-progress logs.")
 
