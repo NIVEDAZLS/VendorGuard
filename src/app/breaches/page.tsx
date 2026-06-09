@@ -153,21 +153,29 @@ export default function BreachesPage() {
   // ── Derived filtered lists ──────────────────────────────────────────────────
   const orderQ = orderFilter.trim().toLowerCase()
 
-  const filteredBreaches = breaches.filter(b => {
-    if (orderQ && !(b.order_id ?? "").toLowerCase().includes(orderQ)) return false
-    return true
-  })
+  const STATUS_SORT: Record<string, number> = { open: 0, pending_review: 1, disputed: 2, sent: 3, waived: 4, paid: 5 }
 
-  const filteredDisputes = disputes.filter(d => {
-    if (vendorFilter !== "all" && d.vendor_id !== vendorFilter) return false
-    if (statusFilter !== "all" && d.status !== statusFilter) return false
-    if (orderQ) {
-      const subject = (d.email_subject ?? "").toLowerCase()
-      const metric  = (d.metric_name  ?? "").toLowerCase()
-      if (!subject.includes(orderQ) && !metric.includes(orderQ) && !d.id.toLowerCase().includes(orderQ)) return false
-    }
-    return true
-  })
+  const filteredBreaches = breaches
+    .filter(b => {
+      if (orderQ && !(b.order_id ?? "").toLowerCase().includes(orderQ)) return false
+      return true
+    })
+    .sort((a, b) => (STATUS_SORT[a.dispute_status] ?? 3) - (STATUS_SORT[b.dispute_status] ?? 3))
+
+  const DISPUTE_SORT: Record<string, number> = { pending_review: 0, sent: 1, approved: 2, rejected: 3 }
+
+  const filteredDisputes = disputes
+    .filter(d => {
+      if (vendorFilter !== "all" && d.vendor_id !== vendorFilter) return false
+      if (statusFilter !== "all" && d.status !== statusFilter) return false
+      if (orderQ) {
+        const subject = (d.email_subject ?? "").toLowerCase()
+        const metric  = (d.metric_name  ?? "").toLowerCase()
+        if (!subject.includes(orderQ) && !metric.includes(orderQ) && !d.id.toLowerCase().includes(orderQ)) return false
+      }
+      return true
+    })
+    .sort((a, b) => (DISPUTE_SORT[a.status] ?? 1) - (DISPUTE_SORT[b.status] ?? 1))
 
   const filteredWarnings = warnings.filter(w => {
     if (vendorFilter !== "all" && w.vendor_id !== vendorFilter) return false
