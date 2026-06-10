@@ -72,7 +72,7 @@ def _run_job():
             FROM operational_logs ol
             JOIN vendors v ON v.id = ol.vendor_id
             WHERE ol.completed_at IS NULL
-              AND ol.started_at >= NOW() - INTERVAL '1 hour'
+              AND ol.started_at >= NOW() - INTERVAL '48 hours'
             ORDER BY ol.started_at DESC
             """
         )
