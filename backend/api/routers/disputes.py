@@ -243,7 +243,9 @@ def list_pre_breach_warnings():
                   AND sr.status IN ('approved', 'draft')
             LEFT JOIN exception_requests er ON er.token_id = et.id
             LEFT JOIN breaches b             ON b.log_id   = et.log_id
-            WHERE et.created_at >= NOW() - INTERVAL '24 hours'
+            WHERE sr.threshold_hours IS NOT NULL
+              AND EXTRACT(EPOCH FROM (NOW() - ol.started_at))/3600
+                  BETWEEN sr.threshold_hours * 0.80 AND sr.threshold_hours * 1.10
             ORDER BY et.created_at DESC
             """
         )
